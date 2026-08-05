@@ -32,7 +32,7 @@
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='3.20.0';
+const VERSION='3.19.3';
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
 
@@ -79,6 +79,11 @@ const fxRng=mulberry32(0xC0FFEE^hashStr(seedStr));
 /* ---------- helpers ---------- */
 const rand=(a,b)=>a+fxRng()*(b-a);   // fx stream — cosmetics only
 const irand=(a,b)=>Math.floor(rand(a,b+1));
+/* the tunnel's starting colour is part of the seed, not of how long your tab has
+   been open: hue drifts continuously and used to carry over between runs, so two
+   people flying the same daily tunnel saw different colours — and gate hues, which
+   are derived from it, differed too */
+const seedHue = () => hashStr(seedStr+'hue')%360;
 const clamp=(v,a,b)=>v<a?a:v>b?b:v;
 const lerp=(a,b,k)=>a+(b-a)*k;
 const TAU=Math.PI*2;
@@ -97,7 +102,7 @@ const FLAP = -102;     // flap impulse u/s
 const MAXFALL = 230;
 
 /* ---------- persistent ---------- */
-let best=0, muted=false, bugs=0, dust=0, up={}, skin='bird', track='wacky', pace=null;
+let best=0, muted=false, bugs=0, up={}, skin='bird', track='wacky', pace=null;
 let stock={}, giftClaimed=false, chalDone=false, chalClaimed=false, chProg=0;
 // challenge collect celebration (gift-style bug fountain, no box)
 let chalAnim=-1, chalFly=[], chalCount=0, chalPopT=0, chalPos=[0,0], chalRect=null;
@@ -110,7 +115,6 @@ try{
   best = +g('fb_best')||0;
   muted = g('fb_mute')==='1';
   bugs = +g('fb_bugs')||0;
-  dust = +g('fb_dust')||0;
   up = JSON.parse(g('fb_up')||'{}')||{};
   skin = g('fb_skin') || 'bird';
   const tk=g('fb_track');
@@ -125,7 +129,6 @@ try{
   if(pace && pace.v!==1 && pace.v!==2) pace=null;   // v1 has score only, v2 adds position
 }catch(e){}
 function save(){ try{
-  localStorage.setItem('fb_dust', dust);
   localStorage.setItem('fb_best', best);
   localStorage.setItem('fb_mute', muted?'1':'0');
   localStorage.setItem('fb_bugs', bugs);
@@ -136,18 +139,6 @@ function save(){ try{
 }catch(e){} }
 
 /* ---------- shop catalog ---------- */
-/* ---------- PROTOTYPE: dual currency (FBRD-1) + renewable sink (FBRD-35) ----------
-   Everything permanent in this shop totals ~4,474 bugs, and then a player has nothing
-   left to want. MASTERY is the experiment: an upgrade with no last tier, geometric cost,
-   small compounding effect. It is the only sink here that cannot be finished.
-   Stardust is the premium currency: bought with money, converted one-way into bugs,
-   never the reverse. The packs below are FAKE — no StoreKit, no money, tap to grant. */
-const wingCost = n => Math.round(60*Math.pow(1.35,n));
-const wingMul  = () => 1 + 0.02*(up.wing|0);
-const DUST_RATE = 25;                       // 1 stardust -> 25 glowbugs
-const DUST_PACKS = [{n:'SMALL',d:20},{n:'MEDIUM',d:120},{n:'LARGE',d:500}];
-const GIFT_DUST = 2;                        // the free player's trickle
-
 const UPG_ORDER=['pedal','surf','star','combo','magnet','net'];
 const UPG={
   harness:{name:'HARNESS', tiers:3, cost:[40,90,160], desc:['absorbs 1 hit each run','absorbs 2 hits each run','absorbs 3 hits each run']},
@@ -597,7 +588,7 @@ let crashY=0;
 /* per-tunnel PB: shown on the title screen, celebrated when beaten */
 let paceBeat=false;
 let newBestShown=false, deadT=0;
-let hue=200, rot=0, twist=0;
+let hue=seedHue(), rot=0, twist=0;
 let shake=0, shX=0, shY=0, flashA=0, flashHue=0, slow=0;
 let camY=0;
 const bird={ y:0, vy:0, wing:0 };
@@ -703,7 +694,7 @@ function comboSmash(sx,sy){
   combo=Math.min(combo,floor);
 }
 function gain(pts,label,x,y,h,flat){
-  scoreF += (flat ? pts : pts*mult) * wingMul(); scorePop=1;
+  scoreF += flat ? pts : pts*mult; scorePop=1;
   if(label) pop(label+(mult>1&&!flat?' ×'+mult:''), x, y, h, flat?1.4:1);
   if(!newBestShown && best>0 && Math.floor(scoreF)>best){
     newBestShown=true; pop('NEW BEST!', CX, CY-140*SC, 130, 1.7); flashA=Math.max(flashA,0.25); flashHue=130; sfx.levelup();
@@ -723,6 +714,7 @@ function projW(x,y,z){ return proj(x+warpX(z), y+warpY(z), z); }
 /* ---------- flow ---------- */
 function reset(){
   checkDay();
+  hue = seedHue();
   ents=[]; parts=[]; pops=[]; trail=[];
   bird.y=0; bird.vy=FLAP*0.5; bird.wing=1;
   t=0; dist=0; scoreF=0; score=0; level=0;
@@ -1018,7 +1010,7 @@ function update(dt){
   if(state==='play'){
     dist += adv;
     spd = Math.min(520, spd + 0.84*d);   // slow creep to a hard ceiling
-    scoreF += (14+level*2)*mult*wingMul()*d;
+    scoreF += (14+level*2)*mult*d;
 
     // level comes from distance, not score: deterministic given input,
     // so the course difficulty is identical for everyone on a seed
@@ -2142,7 +2134,7 @@ function drawShop(){
     ctx.fillText('DAILY GIFT', left+dw/2, y+dh*0.32);
     ctx.font=`700 ${Math.round(10.5*SS)}px system-ui,sans-serif`;
     ctx.fillStyle= giftClaimed?'rgba(255,255,255,0.35)':'hsl(48,100%,70%)';
-    ctx.fillText(giftClaimed?'come back tomorrow':'+'+GIFT_AMT+' bugs  +'+GIFT_DUST+' dust — TAP', left+dw/2, y+dh*0.72);
+    ctx.fillText(giftClaimed?'come back tomorrow':'+'+GIFT_AMT+' bugs — TAP', left+dw/2, y+dh*0.72);
     const cx0=left+dw+8*SS;
     const collect=chalDone&&!chalClaimed;
     if(collect) shopRects.push({r:[cx0,y,dw,dh],a:'chal'});
@@ -2217,85 +2209,6 @@ function drawShop(){
       y+=ph2+8*SS;
     });
   }
-  // ---- MASTERY: the sink that never runs out (FBRD-35) ----
-  y+=12*SS;
-  ctx.textAlign='center';
-  ctx.font=`900 ${Math.round(15*SS)}px system-ui,sans-serif`;
-  ctx.fillStyle='rgba(255,255,255,0.85)';
-  ctx.fillText('MASTERY', CX, y); y+=16*SS;
-  {
-    const n=up.wing|0, c=wingCost(n), afford=bugs>=c;
-    shopRects.push({r:[left,y,right-left,rowH],a:'wing'});
-    ctx.fillStyle='rgba(255,255,255,0.06)';
-    ctx.beginPath();
-    if(ctx.roundRect) ctx.roundRect(left,y,right-left,rowH,10*SS); else ctx.rect(left,y,right-left,rowH);
-    ctx.fill();
-    ctx.textAlign='left'; ctx.textBaseline='middle';
-    ctx.font=`800 ${Math.round(14*SS)}px system-ui,sans-serif`;
-    ctx.fillStyle='#fff';
-    ctx.fillText('WING TUNING'+(n?'  ×'+n:''), left+12*SS, y+rowH*0.3);
-    ctx.font=`600 ${Math.round(11.5*SS)}px system-ui,sans-serif`;
-    ctx.fillStyle='rgba(255,255,255,0.55)';
-    ctx.fillText('+2% score, forever · now +'+Math.round((wingMul()-1)*100)+'%', left+12*SS, y+rowH*0.72);
-    ctx.textAlign='right';
-    ctx.font=`900 ${Math.round(15*SS)}px system-ui,sans-serif`;
-    ctx.fillStyle= afford?'hsl(95,100%,65%)':'rgba(255,255,255,0.3)';
-    ctx.fillText(String(c), right-12*SS, y+rowH*0.5);
-    y+=rowH+8*SS;
-  }
-
-  // ---- STARDUST: the premium currency (FBRD-1) ----
-  y+=12*SS;
-  ctx.textAlign='center';
-  ctx.font=`900 ${Math.round(15*SS)}px system-ui,sans-serif`;
-  ctx.fillStyle='hsl(275,100%,80%)';
-  ctx.fillText('STARDUST', CX, y); y+=16*SS;
-  {
-    const affordD=dust>=1;
-    shopRects.push({r:[left,y,right-left,rowH],a:'convert'});
-    ctx.fillStyle='rgba(180,120,255,0.10)';
-    ctx.beginPath();
-    if(ctx.roundRect) ctx.roundRect(left,y,right-left,rowH,10*SS); else ctx.rect(left,y,right-left,rowH);
-    ctx.fill();
-    ctx.textAlign='left'; ctx.textBaseline='middle';
-    ctx.font=`800 ${Math.round(14*SS)}px system-ui,sans-serif`;
-    ctx.fillStyle='#fff';
-    ctx.fillText('EXCHANGE  1 ★  →  '+DUST_RATE+' bugs', left+12*SS, y+rowH*0.3);
-    ctx.font=`600 ${Math.round(11.5*SS)}px system-ui,sans-serif`;
-    ctx.fillStyle='rgba(255,255,255,0.55)';
-    ctx.fillText('one way — bugs never become stardust', left+12*SS, y+rowH*0.72);
-    ctx.textAlign='right';
-    ctx.font=`900 ${Math.round(15*SS)}px system-ui,sans-serif`;
-    ctx.fillStyle= affordD?'hsl(275,100%,78%)':'rgba(255,255,255,0.3)';
-    ctx.fillText('TAP', right-12*SS, y+rowH*0.5);
-    y+=rowH+8*SS;
-    // Fake packs. A real build routes these through StoreKit (ADR 0003); here they just
-    // grant, so the earn/spend curve can be felt without a payment sheet in the way.
-    const pw2=(right-left-16*SS)/3, ph3=rowH*0.9;
-    DUST_PACKS.forEach((pk,i)=>{
-      const x2=left+i*(pw2+8*SS);
-      shopRects.push({r:[x2,y,pw2,ph3],a:'pack',i});
-      ctx.fillStyle='rgba(180,120,255,0.14)';
-      ctx.strokeStyle='hsla(275,100%,70%,0.5)'; ctx.lineWidth=1.5;
-      ctx.beginPath();
-      if(ctx.roundRect) ctx.roundRect(x2,y,pw2,ph3,10*SS); else ctx.rect(x2,y,pw2,ph3);
-      ctx.fill(); ctx.stroke();
-      ctx.textAlign='center';
-      ctx.font=`800 ${Math.round(11*SS)}px system-ui,sans-serif`;
-      ctx.fillStyle='rgba(255,255,255,0.6)';
-      ctx.fillText(pk.n, x2+pw2/2, y+ph3*0.3);
-      ctx.font=`900 ${Math.round(15*SS)}px system-ui,sans-serif`;
-      ctx.fillStyle='hsl(275,100%,80%)';
-      ctx.fillText('★ '+pk.d, x2+pw2/2, y+ph3*0.68);
-    });
-    y+=ph3+8*SS;
-    ctx.textAlign='center';
-    ctx.font=`600 ${Math.round(10*SS)}px system-ui,sans-serif`;
-    ctx.fillStyle='rgba(255,255,255,0.35)';
-    ctx.fillText('prototype — packs are free, no payment', CX, y+6*SS);
-    y+=18*SS;
-  }
-
   y+=12*SS;
   ctx.textAlign='center';
   ctx.font=`900 ${Math.round(15*SS)}px system-ui,sans-serif`;
@@ -2399,16 +2312,7 @@ function drawShop(){
   ctx.shadowBlur=0;
   ctx.font=`800 ${Math.round(16*SS)}px system-ui,sans-serif`;
   ctx.fillStyle='#fff'; ctx.textAlign='left';
-  ctx.fillText(String(bugs), CX-32*SS, 66*SS);
-  // stardust, visually distinct from glowbugs so the two are never confusable at the
-  // point of sale (principles.md, no dark patterns)
-  const bw=ctx.measureText(String(bugs)).width;
-  ctx.fillStyle='hsl(275,100%,78%)';
-  ctx.shadowColor='hsl(275,100%,65%)'; ctx.shadowBlur=8*SS;
-  starPath(CX-32*SS+bw+22*SS, 66*SS, 7*SS, t*1.2); ctx.fill();
-  ctx.shadowBlur=0;
-  ctx.fillStyle='#fff';
-  ctx.fillText(String(dust), CX-32*SS+bw+34*SS, 66*SS);
+  ctx.fillText(bugs+' glowbugs', CX-32*SS, 66*SS);
   const xr=[W-52,12,40,40];
   shopRects.push({r:xr,a:'close',fixed:true});
   ctx.strokeStyle='rgba(255,255,255,0.85)'; ctx.lineWidth=3; ctx.lineCap='round';
@@ -2445,22 +2349,6 @@ function shopTap(x,y){
       else { beep(180,120,0.18,'square',0.2); shopSay('need '+c+' bugs'); }
       return;
     }
-    if(s2.a==='wing'){
-      const n=up.wing|0, c=wingCost(n);
-      if(bugs>=c){ bugs-=c; up.wing=n+1; save(); sfx.power(); shopSay('WING TUNING ×'+(n+1)+' — +'+Math.round((wingMul()-1)*100)+'% score'); }
-      else { beep(180,120,0.18,'square',0.2); shopSay('need '+c+' bugs'); }
-      return;
-    }
-    if(s2.a==='convert'){
-      if(dust>=1){ dust-=1; bugs+=DUST_RATE; save(); sfx.gem(); shopSay('+'+DUST_RATE+' bugs'); }
-      else { beep(180,120,0.18,'square',0.2); shopSay('no stardust'); }
-      return;
-    }
-    if(s2.a==='pack'){
-      const pk=DUST_PACKS[s2.i];
-      dust+=pk.d; save(); sfx.power(); shopSay('+'+pk.d+' stardust (prototype)');
-      return;
-    }
     if(s2.a==='skin'){
       const sk=SKINS.find(q=>q.id===s2.id);
       if(ownsSkin(sk.id)){ skin=sk.id; save(); sfx.gem(); }
@@ -2475,9 +2363,9 @@ function shopTap(x,y){
     }
     if(s2.a==='gift'){
       if(!giftClaimed){
-        giftClaimed=true; bugs+=GIFT_AMT; dust+=GIFT_DUST;
+        giftClaimed=true; bugs+=GIFT_AMT;
         try{ localStorage.setItem('fb_gift',TODAY); }catch(e){}
-        save(); sfx.power(); shopSay('+'+GIFT_AMT+' bugs  +'+GIFT_DUST+' stardust');
+        save(); sfx.power(); shopSay('+'+GIFT_AMT+' bugs — enjoy!');
       } else shopSay('come back tomorrow');
       return;
     }
