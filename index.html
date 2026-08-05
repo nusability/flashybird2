@@ -32,7 +32,7 @@
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='3.19.3';
+const VERSION='3.19.4';
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
 
@@ -50,6 +50,7 @@ function resize(){
   Fp = 560*SC;
 }
 window.addEventListener('resize', resize); resize();
+setTimeout(()=>syncUrl(),0);
 
 /* ---------- deterministic randomness ----------
    Two seeded PRNG streams replace Math.random entirely:
@@ -69,7 +70,7 @@ const urlSeed=(new URLSearchParams(location.search).get('seed')||'').slice(0,24)
 let seedStr=urlSeed || TODAY;
 // 'daily' follows the date across rollovers; 'custom' sticks to a picked
 // or ?seed= tunnel until the player chooses otherwise
-let seedMode = urlSeed ? 'custom' : 'daily';
+let seedMode = (!urlSeed || urlSeed===TODAY) ? 'daily' : 'custom';
 let worldRng=mulberry32(hashStr(seedStr));
 const wrng=()=>worldRng();
 const wrand=(a,b)=>a+wrng()*(b-a);
@@ -84,6 +85,13 @@ const irand=(a,b)=>Math.floor(rand(a,b+1));
    people flying the same daily tunnel saw different colours — and gate hues, which
    are derived from it, differed too */
 const seedHue = () => hashStr(seedStr+'hue')%360;
+function syncUrl(){
+  try{
+    const u=new URL(location.href);
+    u.searchParams.set('seed', seedStr);
+    history.replaceState(null,'',u);
+  }catch(e){}
+}
 const clamp=(v,a,b)=>v<a?a:v>b?b:v;
 const lerp=(a,b,k)=>a+(b-a)*k;
 const TAU=Math.PI*2;
@@ -192,7 +200,7 @@ function checkDay(){
   const nd=`${n.getUTCFullYear()}${_pad2(n.getUTCMonth()+1)}${_pad2(n.getUTCDate())}`;
   if(nd===TODAY) return;
   TODAY=nd;
-  if(seedMode==='daily') seedStr=TODAY;
+  if(seedMode==='daily'){ seedStr=TODAY; syncUrl(); }
   GIFT_AMT=3+hashStr(TODAY+'gift')%8;
   CHAL=CH_LIST[hashStr(TODAY+'ch')%CH_LIST.length];
   try{
@@ -212,7 +220,7 @@ document.addEventListener('visibilitychange',()=>{ if(!document.hidden) checkDay
 // itself stays a pure function of the seed string
 function randomSeed(){ return 'S'+((Date.now()*2654435761>>>0)%2176782336).toString(36).toUpperCase(); }
 function pickSeed(s,mode){
-  seedStr=s; seedMode=mode;
+  seedStr=s; seedMode=mode; syncUrl();
   try{
     pace=JSON.parse(localStorage.getItem('fb_pace_'+seedStr) ?? 'null');
     if(pace && pace.v!==1 && pace.v!==2) pace=null;
