@@ -32,7 +32,7 @@
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='3.19.5';
+const VERSION='3.19.6';
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
 
@@ -2132,7 +2132,7 @@ function segPill(cx,cy,w,h){
   randRect =[cx,cy-h/2,w/2,h];
 }
 let shopMsg='', shopMsgT=0;
-let shopScroll=0, shopMaxScroll=0, shopPid=null, shopY0=0, shopS0=0, shopMoved=false;
+let shopScroll=0, shopMaxScroll=0, shopPid=null, shopY0=0, shopS0=0, shopMoved=false, shopHeadH=0;
 function openShop(){ if(state!=='shop'){ shopFrom=state; state='shop'; shopScroll=0; } }
 function closeShop(){ state = shopFrom==='dead' ? 'dead' : 'title'; }
 function drawShop(){
@@ -2143,7 +2143,7 @@ function drawShop(){
   // sections get room to breathe
   const SS=Math.min(Math.max(SC, Math.min(W,H)/430), 1.1);
   ctx.fillStyle='rgba(5,1,15,0.84)'; fillFrame();
-  const headH=84*SS;
+  const headH=shopHeadH=84*SS;
   ctx.save();
   ctx.translate(0,-shopScroll);
   ctx.textAlign='center'; ctx.textBaseline='middle';
@@ -2366,7 +2366,10 @@ function drawShop(){
 }
 function shopSay(m){ shopMsg=m; shopMsgT=1.6; }
 function shopTap(x,y){
-  for(const s2 of shopRects){
+  // fixed header rects get first claim, and content that has scrolled up
+  // underneath the opaque header can't be tapped through it
+  for(const s2 of [...shopRects].sort((a,b)=>(b.fixed?1:0)-(a.fixed?1:0))){
+    if(!s2.fixed && y<shopHeadH) continue;
     const [rx,ry,rw,rh]=s2.r;
     const yy = s2.fixed ? y : y + shopScroll;   // content rects live in scroll space
     if(x<rx||x>rx+rw||yy<ry||yy>ry+rh) continue;
