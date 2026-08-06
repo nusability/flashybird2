@@ -32,7 +32,7 @@
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='3.19.4';
+const VERSION='3.19.5';
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
 
@@ -1605,7 +1605,7 @@ function drawEnt(e){
     const a=clamp(1.7-zz/900,0.15,1);
     ctx.save(); ctx.globalAlpha=a; ctx.translate(x,yb);
     ctx.shadowColor='hsl(140,100%,60%)'; ctx.shadowBlur=18*SC*a;
-    drawModel('chick', 6*k, null, 50, 100, 74, 0.3+Math.sin(t*8+e.seed)*0.3);
+    drawBuddy(6*k, 0.3+Math.sin(t*8+e.seed)*0.3, null);
     ctx.restore();
   }
   else if(e.type==='mult'){
@@ -1627,6 +1627,7 @@ function drawBird(surfing,starred){
   // four full cycles over the last second
   const invEnd=Math.max(surfT,starT);
   const mono = (invEnd>0 && invEnd<1) ? (Math.floor(invEnd*8)%2 ? '#000' : '#fff') : null;
+  const fx = starred ? 'star' : surfing ? 'surf' : null;
   const [bx,by,k]=proj(0,bird.y,BZ);
   const s=BIRD_R*k;
   // trail ghosts
@@ -1644,7 +1645,7 @@ function drawBird(surfing,starred){
     ctx.save();
     ctx.translate(cx2 - BIRD_R*ck*2.2, cy2 - BIRD_R*ck*1.7);
     ctx.shadowColor='hsl(140,100%,60%)'; ctx.shadowBlur=10*SC;
-    drawModel('chick', BIRD_R*ck*0.62, null, 50, 100, 74, 0.3+Math.sin(t*11)*0.3);
+    drawBuddy(BIRD_R*ck*0.62, 0.3+Math.sin(t*11)*0.3, fx);
     ctx.restore();
   }
   ctx.save();
@@ -1663,19 +1664,36 @@ function drawBird(surfing,starred){
     ctx.shadowBlur=0; ctx.restore();
   }
   if(starred||surfing){ ctx.shadowColor=mono||(surfing?'#dff2ff':`hsl(${(t*400)%360},100%,60%)`); ctx.shadowBlur=26*SC; }
-  drawModel(skin, s, mono, bodyH, bodySat, bodyLum, bird.wing);
+  drawModel(skin, s, mono, bodyH, bodySat, bodyLum, bird.wing, fx);
   ctx.shadowBlur=0;
   ctx.restore();
 }
 
 /* ---------- playable models (all drawn at origin, s = base half-size) ---------- */
-function drawModel(id, s, mono, bodyH, bodySat, bodyLum, wing){
-  if(id==='chick') return drawBirdModel(s*0.7, mono, 50, bodySat, Math.min(90,bodyLum+16), wing, 0.75);
-  if(id==='dragonfly') return drawDragonfly(s, mono, wing);
-  if(id==='eagle') return drawEagle(s, mono, wing);
-  if(id==='ship') return drawShip(s, mono, wing);
-  if(id==='truck') return drawTruck(s, mono, wing);
+function drawModel(id, s, mono, bodyH, bodySat, bodyLum, wing, fx){
+  if(id==='chick') return drawBirdModel(s*0.7, mono, bodyH, bodySat, Math.min(90,bodyLum+16), wing, 0.75);
+  if(id==='dragonfly') return drawDragonfly(s, mono, wing, fx);
+  if(id==='eagle') return drawEagle(s, mono, wing, fx);
+  if(id==='ship') return drawShip(s, mono, wing, fx);
+  if(id==='truck') return drawTruck(s, mono, wing, fx);
   return drawBirdModel(s, mono, bodyH, bodySat, bodyLum, wing, 0.55);
+}
+// the buddy is a pint-sized copy of whichever model you're flying
+function drawBuddy(s, wing, fx){
+  const h = fx==='star' ? (t*400)%360 : fx==='surf' ? 210 : 50;
+  const sa = fx==='surf' ? 20 : 100;
+  const lu = fx==='surf' ? 78 : fx==='star' ? 58 : 74;
+  if(skin==='bird') return drawModel('chick', s, null, h, sa, lu, wing, fx);
+  drawModel(skin, s*0.7, null, h, sa, lu, wing, fx);
+}
+// non-bird models draw every part through this: 'star' spins the whole
+// palette through rainbow hues, 'surf' washes it silver, matching what
+// the bird body does via bodyH/bodySat/bodyLum
+function fxColor(fx, mono){
+  if(mono) return ()=>mono;
+  if(fx==='star'){ const cyc=(t*400)%360; return (h,sa,li,a=1)=>`hsla(${(cyc+h*0.2)%360},100%,${35+li*0.4}%,${a})`; }
+  if(fx==='surf') return (h,sa,li,a=1)=>`hsla(210,${Math.min(sa,25)}%,${55+li*0.4}%,${a})`;
+  return (h,sa,li,a=1)=>`hsla(${h},${sa}%,${li}%,${a})`;
 }
 function drawBirdModel(s, mono, bodyH, bodySat, bodyLum, wing, headR){
   const wingA = 0.55 - wing*1.5 + Math.sin(t*9)*0.08;
@@ -1703,30 +1721,32 @@ function drawBirdModel(s, mono, bodyH, bodySat, bodyLum, wing, headR){
   ctx.fillStyle=mono||`hsl(${bodyH},${bodySat}%,${bodyLum+8}%)`;
   ctx.beginPath(); ctx.arc(0,-s*0.85,s*headR,0,TAU); ctx.fill();
 }
-function drawDragonfly(s, mono, wing){
+function drawDragonfly(s, mono, wing, fx){
+  const C=fxColor(fx,mono);
   const flut=Math.sin(t*45)*0.35 - wing*0.5;
   for(const side of [-1,1]) for(const pair of [0,1]){
     ctx.save(); ctx.scale(side,1); ctx.translate(s*0.3, -s*0.2+pair*s*0.55); ctx.rotate(0.25+flut+pair*0.15);
-    ctx.fillStyle=mono||`hsla(${190+pair*40},80%,75%,0.5)`;
+    ctx.fillStyle=C(190+pair*40,80,75,0.5);
     ctx.beginPath(); ctx.ellipse(s*1.3,0,s*1.5,s*0.34,0,0,TAU); ctx.fill();
-    ctx.strokeStyle=mono||'rgba(210,255,250,0.7)'; ctx.lineWidth=1*SC; ctx.stroke();
+    ctx.strokeStyle=C(173,60,91,0.7); ctx.lineWidth=1*SC; ctx.stroke();
     ctx.restore();
   }
   const bg=ctx.createLinearGradient(0,-s,0,s*2.4);
-  bg.addColorStop(0,'hsl(170,90%,55%)'); bg.addColorStop(1,'hsl(230,80%,45%)');
+  bg.addColorStop(0,C(170,90,55)); bg.addColorStop(1,C(230,80,45));
   ctx.fillStyle=mono||bg;
   ctx.beginPath(); ctx.ellipse(0,s*0.8,s*0.32,s*1.7,0,0,TAU); ctx.fill();      // slim tail
   ctx.beginPath(); ctx.ellipse(0,-s*0.3,s*0.55,s*0.6,0,0,TAU); ctx.fill();     // thorax
-  ctx.fillStyle=mono||'hsl(160,90%,70%)';
+  ctx.fillStyle=C(160,90,70);
   ctx.beginPath(); ctx.arc(-s*0.3,-s*0.95,s*0.32,0,TAU); ctx.fill();           // eyes
   ctx.beginPath(); ctx.arc(s*0.3,-s*0.95,s*0.32,0,TAU); ctx.fill();
 }
-function drawEagle(s, mono, wing){
+function drawEagle(s, mono, wing, fx){
+  const C=fxColor(fx,mono);
   const wingA = 0.35 - wing*1.4 + Math.sin(t*7)*0.06;
   for(const side of [-1,1]){
     ctx.save(); ctx.scale(side,1); ctx.translate(s*0.6,-s*0.15); ctx.rotate(wingA);
     const wg=ctx.createLinearGradient(0,0,s*3.4,0);
-    wg.addColorStop(0,'hsl(28,45%,32%)'); wg.addColorStop(1,'hsl(28,40%,18%)');
+    wg.addColorStop(0,C(28,45,32)); wg.addColorStop(1,C(28,40,18));
     ctx.fillStyle=mono||wg;
     ctx.beginPath(); ctx.moveTo(0,0);
     ctx.quadraticCurveTo(s*2,-s*1.3,s*3.5,-s*0.7);
@@ -1735,56 +1755,58 @@ function drawEagle(s, mono, wing){
     ctx.closePath(); ctx.fill();
     ctx.restore();
   }
-  ctx.fillStyle=mono||'#f4f0e6';                                              // fanned white tail
+  ctx.fillStyle=C(43,39,93);                                                  // fanned white tail
   ctx.beginPath(); ctx.moveTo(-s*0.7,s*1.7); ctx.quadraticCurveTo(0,s*0.5,s*0.7,s*1.7);
   ctx.quadraticCurveTo(0,s*1.45,-s*0.7,s*1.7); ctx.closePath(); ctx.fill();
   const bg=ctx.createRadialGradient(-s*0.3,-s*0.3,s*0.1,0,0,s*1.4);
-  bg.addColorStop(0,'hsl(28,40%,38%)'); bg.addColorStop(1,'hsl(28,45%,20%)');
+  bg.addColorStop(0,C(28,40,38)); bg.addColorStop(1,C(28,45,20));
   ctx.fillStyle=mono||bg;
   ctx.beginPath(); ctx.ellipse(0,0,s*1.05,s*1.15,0,0,TAU); ctx.fill();
-  ctx.fillStyle=mono||'#f7f3ea';                                              // white head
+  ctx.fillStyle=C(42,45,95);                                                  // white head
   ctx.beginPath(); ctx.arc(0,-s*0.95,s*0.55,0,TAU); ctx.fill();
-  ctx.fillStyle=mono||'hsl(45,95%,55%)';                                      // beak tip peeking over
+  ctx.fillStyle=C(45,95,55);                                                  // beak tip peeking over
   ctx.beginPath(); ctx.arc(0,-s*1.35,s*0.16,0,TAU); ctx.fill();
 }
-function drawShip(s, mono, wing){
+function drawShip(s, mono, wing, fx){
+  const C=fxColor(fx,mono);
   const thrust=0.5+wing*1.6+Math.sin(t*30)*0.15;
   ctx.globalCompositeOperation='lighter';                                     // engine glow
   for(const side of [-1,1]){
     const g2=ctx.createRadialGradient(side*s*0.55,s*1.15,0,side*s*0.55,s*1.15,s*1.4*thrust);
-    g2.addColorStop(0,`rgba(120,220,255,${0.85*thrust})`); g2.addColorStop(1,'rgba(120,220,255,0)');
+    g2.addColorStop(0,C(196,100,74,0.85*thrust)); g2.addColorStop(1,C(196,100,74,0));
     ctx.fillStyle=g2; ctx.beginPath(); ctx.arc(side*s*0.55,s*1.15,s*1.4*thrust,0,TAU); ctx.fill();
   }
   ctx.globalCompositeOperation='source-over';
   const bg=ctx.createLinearGradient(-s*1.6,0,s*1.6,0);
-  bg.addColorStop(0,'#5a6c80'); bg.addColorStop(0.5,'#dfe9f5'); bg.addColorStop(1,'#5a6c80');
+  bg.addColorStop(0,C(212,17,43)); bg.addColorStop(0.5,C(213,52,92)); bg.addColorStop(1,C(212,17,43));
   ctx.fillStyle=mono||bg;
   ctx.beginPath();                                                            // chevron hull
   ctx.moveTo(0,-s*1.5); ctx.lineTo(s*1.7,s*1.1); ctx.lineTo(s*0.55,s*0.75);
   ctx.lineTo(0,s*1.05); ctx.lineTo(-s*0.55,s*0.75); ctx.lineTo(-s*1.7,s*1.1);
   ctx.closePath(); ctx.fill();
-  ctx.strokeStyle=mono||'rgba(20,30,45,0.6)'; ctx.lineWidth=1.4*SC; ctx.stroke();
-  ctx.fillStyle=mono||'rgba(130,230,255,0.95)';                               // cockpit dome
+  ctx.strokeStyle=C(216,38,13,0.6); ctx.lineWidth=1.4*SC; ctx.stroke();
+  ctx.fillStyle=C(192,100,75,0.95);                                          // cockpit dome
   ctx.beginPath(); ctx.arc(0,-s*0.25,s*0.42,0,TAU); ctx.fill();
 }
-function drawTruck(s, mono, wing){
+function drawTruck(s, mono, wing, fx){
+  const C=fxColor(fx,mono);
   ctx.save(); ctx.rotate(clamp(bird.vy*0.0012,-0.18,0.18));
-  ctx.fillStyle=mono||'#2a2633';                                              // wheels
+  ctx.fillStyle=C(258,15,17);                                                 // wheels
   ctx.beginPath(); ctx.arc(-s*0.85,s*1.15,s*0.38,0,TAU); ctx.fill();
   ctx.beginPath(); ctx.arc(s*0.85,s*1.15,s*0.38,0,TAU); ctx.fill();
   const bg=ctx.createLinearGradient(0,-s*1.1,0,s*1.2);
-  bg.addColorStop(0,'#fdf6ee'); bg.addColorStop(0.55,'#fdf6ee'); bg.addColorStop(0.56,'#ff7fb1'); bg.addColorStop(1,'#ff5f9e');
+  bg.addColorStop(0,C(32,79,96)); bg.addColorStop(0.55,C(32,79,96)); bg.addColorStop(0.56,C(337,100,75)); bg.addColorStop(1,C(336,100,69));
   ctx.fillStyle=mono||bg;                                                     // box body (rear view)
   ctx.beginPath();
   if(ctx.roundRect) ctx.roundRect(-s*1.35,-s*1.05,s*2.7,s*2.15,s*0.25); else ctx.rect(-s*1.35,-s*1.05,s*2.7,s*2.15);
   ctx.fill();
-  ctx.strokeStyle=mono||'rgba(90,40,70,0.55)'; ctx.lineWidth=1.4*SC; ctx.stroke();
+  ctx.strokeStyle=C(324,38,25,0.55); ctx.lineWidth=1.4*SC; ctx.stroke();
   ctx.beginPath(); ctx.moveTo(0,-s*1.05); ctx.lineTo(0,s*1.1); ctx.stroke();  // rear door split
-  ctx.fillStyle=mono||'rgba(120,200,240,0.9)';                                // rear windows
+  ctx.fillStyle=C(200,80,71,0.9);                                             // rear windows
   ctx.fillRect(-s*1.05,-s*0.75,s*0.75,s*0.55); ctx.fillRect(s*0.3,-s*0.75,s*0.75,s*0.55);
-  ctx.fillStyle=mono||'#f7d9a8';                                              // roof cone (tip down)
+  ctx.fillStyle=C(37,83,81);                                                  // roof cone (tip down)
   ctx.beginPath(); ctx.moveTo(-s*0.3,-s*1.85); ctx.lineTo(s*0.3,-s*1.85); ctx.lineTo(0,-s*1.05); ctx.closePath(); ctx.fill();
-  ctx.fillStyle=mono||'#ffb3d9';                                              // scoop on top
+  ctx.fillStyle=C(330,100,85);                                                // scoop on top
   ctx.beginPath(); ctx.arc(0,-s*1.95,s*0.34,0,TAU); ctx.fill();
   ctx.restore();
 }
