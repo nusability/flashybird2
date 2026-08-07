@@ -21,7 +21,7 @@
 <meta name="twitter:image" content="https://nusability.github.io/flashybird2/og.png">
 <style>
   html,body{margin:0;padding:0;background:#05010f;overflow:hidden;height:100%;touch-action:none;-webkit-user-select:none;user-select:none;overscroll-behavior:none}
-  canvas{display:block;position:fixed;inset:0;cursor:pointer}
+  canvas{display:block;position:fixed;inset:0;cursor:pointer;touch-action:none}
 </style>
 </head>
 <body>
@@ -32,7 +32,7 @@
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='3.19.6';
+const VERSION='3.19.7';
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
 
@@ -961,8 +961,11 @@ window.addEventListener('wheel',e=>{
 },{passive:false});
 window.addEventListener('keyup',e=>{ if(e.key==='Shift') pedalOn=false; });
 // iOS Safari only counts some gestures as user activation for audio —
-// touchend is the reliable one, so unlock there too (no gameplay effect)
-window.addEventListener('touchend',()=>initAudio(),{passive:true});
+// touchend is the reliable one, so unlock there too. Cancelling the event
+// is what actually stops Safari's double-tap zoom on fast flaps: the
+// touch-action CSS alone isn't honoured by every mobile browser, and all
+// input runs on pointer events so no click handlers are lost.
+window.addEventListener('touchend',e=>{ initAudio(); if(e.cancelable) e.preventDefault(); },{passive:false});
 window.addEventListener('keydown',e=>{
   if(e.key==='Shift' && state==='play' && tier('pedal')>0){ pedalOn=true; return; }
   if(e.repeat) return;
