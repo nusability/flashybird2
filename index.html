@@ -32,7 +32,7 @@
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='3.20.0';
+const VERSION='3.21.0';
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
 
@@ -622,6 +622,10 @@ function rockShape(){
 let lastSpawnAt={};   // per-powerup cumulative-distance cooldowns
 function spawn(z){
   const wz = dist + z;   // cumulative course position: frame-rate independent
+  // powerup generosity ramps with course distance: baseline early, a bump
+  // you start to feel around 30k, flat from 60k on. A pure function of
+  // course position, so the world stream stays deterministic per seed.
+  const gen = clamp((wz-20000)/40000, 0, 1);
   const roll=wrng();
   if(roll<0.46){                                   // GATE — disc with a spinning hole
     const shrink = clamp(22 - dlvl()*0.9, 15, 22);
@@ -668,9 +672,9 @@ function spawn(z){
     rocks.forEach((r,i)=>{ r.ph=i*TAU/solid+wrand(-0.25,0.25); });
     for(let i=0;i<3;i++) rocks.push({x:wrand(24,52)*(wrng()<0.5?-1:1),y:wrand(-50,50),r:wrand(6,10),shape:rockShape(),ra:wrand(0,TAU),rs:wrand(-1.5,1.5),amp:wrand(4,8),ph:wrand(0,TAU),deco:true});
     ents.push({type:'rocks', z, w2, rocks, done:false});
-  } else if(roll<0.86){                            // GEM
+  } else if(roll<0.86-0.03*gen){                   // GEM — cedes ground to powerups late
     ents.push({type:'gem', z, x:0, y:wrand(-36,36), seed:wrand(0,9), done:false});
-  } else if(roll<0.92){                            // GLOWBUG — evasive currency
+  } else if(roll<0.92-0.04*gen){                   // GLOWBUG — evasive currency
     ents.push({type:'bug', z, x:0, y:wrand(-30,30), seed:wrand(0,9), ev:0, done:false});
   } else {                                         // POWER-UP — static weights + distance cooldowns
     // rarity control moved from player-state sniffing (broke determinism)
@@ -683,7 +687,7 @@ function spawn(z){
     else if(p<0.70) kind='spin';
     else if(p<0.76) kind='buddy';
     const CD={surf:700, star:450, slow:1600, spin:2400, buddy:2000, mult:500};
-    if(wz - (lastSpawnAt[kind]||-1e9) < CD[kind]) kind='gem';
+    if(wz - (lastSpawnAt[kind]||-1e9) < CD[kind]*(1-0.35*gen)) kind='gem';
     if(kind==='gem') ents.push({type:'gem', z, x:0, y:wrand(-36,36), seed:wrand(0,9), done:false});
     else { lastSpawnAt[kind]=wz; ents.push({type:kind, z, x:0, y:wrand(-32,32), seed:wrand(0,9), done:false}); }
   }
