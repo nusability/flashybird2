@@ -32,7 +32,7 @@
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='3.22.3';
+const VERSION='3.22.4';
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
 
@@ -638,6 +638,7 @@ let starMax=4.2, surfMax=4.5;
 let harnessLeft=0, phoenixLeft=0, buddy=false;
 let runBugs=0, runBugStreak=0, runGates=0;
 let pedalOn=false, pedalT=0, pedalPid=null, pedalLock=false, riseRect=null, todayRect=null, randRect=null, muteRect=null, deadStackY=0;
+let dbgPowerRect=null;   // the END GOD MODE button while ?debug=poweroverwhelming
 // pressed-state tracking: where the active pointer is, while it's down
 let pressX=-1, pressY=-1, pressDown=false;
 const pressedIn=r=> pressDown && r && pressX>=r[0]&&pressX<=r[0]+r[2]&&pressY>=r[1]&&pressY<=r[1]+r[3];
@@ -894,6 +895,20 @@ function dive(){
   const [bx,by]=proj(0,bird.y,BZ);
   burst(bx,by-14*SC,5,(hue+180)%360,150*SC,3*SC);
 }
+// debug: the exit for ?debug=poweroverwhelming — turns the flag off, scrubs
+// it from the URL so a reload doesn't re-arm it, and lets the shield lapse
+// through the normal grace window
+function endGodMode(){
+  DBG.power=false; dbgPowerRect=null;
+  starT=0; graceT=Math.max(graceT,0.5);
+  pop('GOD MODE OFF',CX,CY-140*SC,0,1.2); beep(500,180,0.3,'square',0.2);
+  try{
+    const u=new URL(location.href);
+    const cur=(u.searchParams.get('debug')||'').split(',').filter(x=>x&&x!=='poweroverwhelming');
+    if(cur.length) u.searchParams.set('debug',cur.join(',')); else u.searchParams.delete('debug');
+    history.replaceState(null,'',u.href);
+  }catch(e){}
+}
 // debug: ?debug=silversurfer — the slo-mo pedal press itself grants a
 // (stacking) silver surf, no board required
 function dbgSurf(){
@@ -964,6 +979,12 @@ window.addEventListener('pointerdown',e=>{
     e.preventDefault(); initAudio();
     shopPid=e.pointerId; shopY0=e.clientY; shopS0=shopScroll; shopMoved=false;
     return;
+  }
+  if(state==='play' && DBG.power && dbgPowerRect){
+    const [rx,ry,rw,rh]=dbgPowerRect;
+    if(e.clientX>=rx&&e.clientX<=rx+rw&&e.clientY>=ry&&e.clientY<=ry+rh){
+      e.preventDefault(); initAudio(); endGodMode(); return;
+    }
   }
   if(state==='play' && (tier('pedal')>0||DBG.surfer)){
     const dx=e.clientX-(W-66), dy=e.clientY-(H-66);
@@ -2055,6 +2076,12 @@ function drawHUD(surfing,starred){
     ctx.textAlign='center'; ctx.textBaseline='middle';
     ctx.fillText('SLO-MO',pcx,pcy);
   }
+  // ?debug=poweroverwhelming needs a visible exit — home-screen apps can't
+  // edit the URL, so god mode carries its own off switch
+  if(DBG.power && state==='play'){
+    const US=uiS(), bw=132*US, bh=36*US;
+    dbgPowerRect=pillBtn(14+bw/2, H-64*US, bw, bh, 'END GOD MODE', (t*400)%360, false);
+  } else dbgPowerRect=null;
   // mute toggle: styled corner button on menu screens, whisper-quiet
   // bare glyph during play so it never competes with the tunnel
   if(state==='title' || (state==='dead'&&deadT>0.25)){
