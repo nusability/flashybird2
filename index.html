@@ -32,7 +32,7 @@
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='3.22.2';
+const VERSION='3.22.3';
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
 
@@ -212,7 +212,17 @@ try{
     if(f.includes('showmethemoney')){ bugs+=1000; save(); persisted=true; }
     DBG.power=f.includes('poweroverwhelming');
     DBG.surfer=f.includes('silversurfer');
-    if(persisted && !DBG.power && !DBG.surfer) location.replace(location.pathname);
+    if(persisted){
+      if(!DBG.power && !DBG.surfer) location.replace(location.pathname);
+      else {
+        // runtime flags must stay in the URL to keep working, but the
+        // persistent ones just applied must NOT re-apply on every reload —
+        // rewrite the query to carry only the runtime flags
+        const u=new URL(location.href);
+        u.searchParams.set('debug', f.filter(x=>x==='poweroverwhelming'||x==='silversurfer').join(','));
+        history.replaceState(null,'',u.href);
+      }
+    }
   }
 }catch(e){}
 /* daily gift (3-10 bugs) and daily challenge (3-20 bugs) — same for
@@ -2338,7 +2348,17 @@ function segPill(cx,cy,w,h){
   todayRect=[cx-w/2,cy-h/2,w/2,h];
   randRect =[cx,cy-h/2,w/2,h];
 }
-let shopMsg='', shopMsgT=0, truckTaps=0;
+let shopMsg='', shopMsgT=0, streakId=null, streakN=0;
+// 7 consecutive taps on a model card triggers its debug action (the
+// home-screen app can't type URLs): truck reloads, the rest map to the
+// ?debug= flags and confirm before applying
+const SKIN_DEBUG={
+  bird:     ['reset',            'wipe ALL saved progress'],
+  chick:    ['showmethemoney',   'add 1000 glowbugs'],
+  dragonfly:['silversurfer',     'pedal grants stacking surf'],
+  eagle:    ['max',              'max all upgrades & supplies'],
+  ship:     ['poweroverwhelming','permanent invincibility'],
+};
 let shopScroll=0, shopMaxScroll=0, shopPid=null, shopY0=0, shopS0=0, shopMoved=false, shopHeadH=0;
 function openShop(){ if(state!=='shop'){ shopFrom=state; state='shop'; shopScroll=0; } }
 function closeShop(){ state = shopFrom==='dead' ? 'dead' : 'title'; }
@@ -2597,9 +2617,9 @@ function shopTap(x,y){
     const [rx,ry,rw,rh]=s2.r;
     const yy = s2.fixed ? y : y + shopScroll;   // content rects live in scroll space
     if(x<rx||x>rx+rw||yy<ry||yy>ry+rh) continue;
-    // 7 consecutive taps on the ice cream truck force a fresh reload with a
-    // cache-busting param — home-screen web apps have no reload button
-    if(!(s2.a==='skin' && s2.id==='truck')) truckTaps=0;
+    // track consecutive taps on the same model card for the debug gestures
+    if(s2.a==='skin'){ if(s2.id===streakId) streakN++; else { streakId=s2.id; streakN=1; } }
+    else { streakId=null; streakN=0; }
     if(s2.a==='close'){ closeShop(); return; }
     if(s2.a==='buy'){
       const u=UPG[s2.k], tr=tier(s2.k);
@@ -2611,11 +2631,24 @@ function shopTap(x,y){
     }
     if(s2.a==='skin'){
       const sk=SKINS.find(q=>q.id===s2.id);
-      if(sk.id==='truck' && ++truckTaps>=7){
+      if(streakN>=7){
+        streakN=0;
         try{
           const u=new URL(location.href);
-          u.searchParams.set('reload', Math.random().toString(36).slice(2,10));
-          location.replace(u.href);
+          if(sk.id==='truck'){
+            // cache-busting reload, no confirmation — it's harmless
+            u.searchParams.set('reload', Math.random().toString(36).slice(2,10));
+            location.replace(u.href);
+            return;
+          }
+          const dbg=SKIN_DEBUG[sk.id];
+          if(dbg && confirm('DEBUG · '+dbg[0]+'\n'+dbg[1]+' — apply and reload?')){
+            const cur=(u.searchParams.get('debug')||'').split(',').filter(Boolean);
+            if(!cur.includes(dbg[0])) cur.push(dbg[0]);
+            u.searchParams.set('debug', cur.join(','));
+            u.searchParams.set('reload', Math.random().toString(36).slice(2,10));
+            location.replace(u.href);
+          }
         }catch(e){}
         return;
       }
