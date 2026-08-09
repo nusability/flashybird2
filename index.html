@@ -32,7 +32,7 @@
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='3.22.4';
+const VERSION='3.22.5';
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
 
@@ -966,13 +966,60 @@ function press(){
   else if(state==='play'){ flap(); }
   else if(state==='dead' && deadT>0.25){ reset(); flap(); }
 }
+// menu buttons arm on pointerdown and fire on pointerup while still inside
+// the rect — that's what makes the pressed state actually visible, and lets
+// a slide-off cancel. Gameplay taps (flap/restart) and the hold-to-slow
+// pedal stay instant.
+let pendBtn=null;
+function claimGift(){
+  if(giftClaimed) return;
+  // claim immediately so the reward survives even if the run restarts
+  // mid-animation — the show that follows is pure feedback
+  giftClaimed=true; bugs+=GIFT_AMT;
+  try{ localStorage.setItem('fb_gift',TODAY); }catch(e2){}
+  save();
+  giftAnim=0; giftCount=0; giftFly=[]; giftLid=null;
+}
+function claimChal(){
+  if(!chalDone || chalClaimed) return;
+  chalClaimed=true; bugs+=CHAL.reward;
+  try{ localStorage.setItem('fb_chalc',TODAY); }catch(e2){}
+  save();
+  chalPos=[CX, H-chalBandH()-40*uiS()];
+  chalAnim=0; chalCount=0; chalFly=[];
+  burst(chalPos[0],chalPos[1],36,60,400*SC,5*SC);
+  burst(chalPos[0],chalPos[1],22,95,320*SC,4*SC);
+  flashA=Math.max(flashA,0.35); flashHue=80; shake=Math.max(shake,8);
+  sfx.levelup();
+  for(let i=0;i<CHAL.reward;i++){
+    const a=-Math.PI/2 + (i/(CHAL.reward-1||1)-0.5)*2.6;
+    chalFly.push({d:0.05+i*0.07, t:0, x:chalPos[0], y:chalPos[1],
+      vx:Math.cos(a)*rand(140,280)*SC, vy:Math.sin(a)*rand(220,400)*SC, done:false});
+  }
+}
+function fireBtn(act){
+  if(act==='mute'){ muted=!muted; save(); applyMute(); return; }
+  if(act==='god'){ if(state==='play') endGodMode(); return; }
+  if(state==='shop') return;   // the screen changed under the press
+  if(act==='nest') openShop();
+  else if(act==='today') pickSeed(TODAY,'daily');
+  else if(act==='rand') pickSeed(randomSeed(),'custom');
+  else if(act==='rise' && state==='dead'){
+    if(phoenixLeft>0){ phoenixLeft--; revive('PHOENIX!'); }
+    else if((stock.egg|0)>0){ stock.egg--; save(); revive('PHOENIX EGG!'); }
+  }
+  else if(act==='share') doShare();
+  else if(act==='gift') claimGift();
+  else if(act==='chal') claimChal();
+}
 window.addEventListener('pointerdown',e=>{
   pressX=e.clientX; pressY=e.clientY; pressDown=true;
+  pendBtn=null;
+  const inR=r=> r && e.clientX>=r[0] && e.clientX<=r[0]+r[2] && e.clientY>=r[1] && e.clientY<=r[1]+r[3];
+  const arm=(act,r)=>{ e.preventDefault(); initAudio(); pendBtn={act,r}; };
   if(state!=='shop'){
-    const inMute = muteRect
-      ? (e.clientX>=muteRect[0] && e.clientX<=muteRect[0]+muteRect[2] && e.clientY>=muteRect[1] && e.clientY<=muteRect[1]+muteRect[3])
-      : (e.clientX<64 && e.clientY<64);
-    if(inMute){ muted=!muted; save(); applyMute(); return; }
+    const mr = muteRect || [0,0,64,64];
+    if(inR(mr)){ arm('mute',mr); return; }
   }
   if(state==='shop'){
     // drag scrolls, a clean press taps (decided on pointerup)
@@ -980,75 +1027,19 @@ window.addEventListener('pointerdown',e=>{
     shopPid=e.pointerId; shopY0=e.clientY; shopS0=shopScroll; shopMoved=false;
     return;
   }
-  if(state==='play' && DBG.power && dbgPowerRect){
-    const [rx,ry,rw,rh]=dbgPowerRect;
-    if(e.clientX>=rx&&e.clientX<=rx+rw&&e.clientY>=ry&&e.clientY<=ry+rh){
-      e.preventDefault(); initAudio(); endGodMode(); return;
-    }
-  }
+  if(state==='play' && DBG.power && inR(dbgPowerRect)){ arm('god',dbgPowerRect); return; }
   if(state==='play' && (tier('pedal')>0||DBG.surfer)){
     const dx=e.clientX-(W-66), dy=e.clientY-(H-66);
     if(dx*dx+dy*dy < 52*52){ e.preventDefault(); initAudio(); pedalOn=true; pedalPid=e.pointerId; if(DBG.surfer) dbgSurf(); return; }
   }
-  if(nestRect && (state==='title' || (state==='dead'&&deadT>0.25))){
-    const [nx,ny,nw,nh]=nestRect;
-    if(e.clientX>=nx && e.clientX<=nx+nw && e.clientY>=ny && e.clientY<=ny+nh){
-      e.preventDefault(); initAudio(); openShop(); return;
-    }
-  }
-  if((state==='title' || (state==='dead'&&deadT>0.25)) && todayRect && randRect){
-    const hit=(r)=> e.clientX>=r[0] && e.clientX<=r[0]+r[2] && e.clientY>=r[1] && e.clientY<=r[1]+r[3];
-    if(hit(todayRect)){ e.preventDefault(); initAudio(); pickSeed(TODAY,'daily'); return; }
-    if(hit(randRect)){ e.preventDefault(); initAudio(); pickSeed(randomSeed(),'custom'); return; }
-  }
-  if(state==='dead' && riseRect && deadT>0.25){
-    const [rx,ry,rw,rh]=riseRect;
-    if(e.clientX>=rx && e.clientX<=rx+rw && e.clientY>=ry && e.clientY<=ry+rh){
-      e.preventDefault(); initAudio();
-      if(phoenixLeft>0){ phoenixLeft--; revive('PHOENIX!'); }
-      else if((stock.egg|0)>0){ stock.egg--; save(); revive('PHOENIX EGG!'); }
-      return;
-    }
-  }
-  if((state==='title' || (state==='dead'&&deadT>0.25)) && shareRect){
-    const [rx,ry,rw,rh]=shareRect;
-    if(e.clientX>=rx && e.clientX<=rx+rw && e.clientY>=ry && e.clientY<=ry+rh){
-      e.preventDefault(); initAudio(); doShare(); return;
-    }
-  }
-  if((state==='title' || (state==='dead'&&deadT>0.25)) && giftRect && !giftClaimed && giftAnim<0){
-    const [rx,ry,rw,rh]=giftRect;
-    if(e.clientX>=rx && e.clientX<=rx+rw && e.clientY>=ry && e.clientY<=ry+rh){
-      e.preventDefault(); initAudio();
-      // claim immediately so the reward survives even if the run restarts
-      // mid-animation — the show that follows is pure feedback
-      giftClaimed=true; bugs+=GIFT_AMT;
-      try{ localStorage.setItem('fb_gift',TODAY); }catch(e2){}
-      save();
-      giftAnim=0; giftCount=0; giftFly=[]; giftLid=null;
-      return;
-    }
-  }
-  if((state==='title' || (state==='dead'&&deadT>0.25)) && chalRect && chalDone && !chalClaimed){
-    const [rx,ry,rw,rh]=chalRect;
-    if(e.clientX>=rx && e.clientX<=rx+rw && e.clientY>=ry && e.clientY<=ry+rh){
-      e.preventDefault(); initAudio();
-      chalClaimed=true; bugs+=CHAL.reward;
-      try{ localStorage.setItem('fb_chalc',TODAY); }catch(e2){}
-      save();
-      chalPos=[CX, H-chalBandH()-40*uiS()];
-      chalAnim=0; chalCount=0; chalFly=[];
-      burst(chalPos[0],chalPos[1],36,60,400*SC,5*SC);
-      burst(chalPos[0],chalPos[1],22,95,320*SC,4*SC);
-      flashA=Math.max(flashA,0.35); flashHue=80; shake=Math.max(shake,8);
-      sfx.levelup();
-      for(let i=0;i<CHAL.reward;i++){
-        const a=-Math.PI/2 + (i/(CHAL.reward-1||1)-0.5)*2.6;
-        chalFly.push({d:0.05+i*0.07, t:0, x:chalPos[0], y:chalPos[1],
-          vx:Math.cos(a)*rand(140,280)*SC, vy:Math.sin(a)*rand(220,400)*SC, done:false});
-      }
-      return;
-    }
+  if(state==='title' || (state==='dead'&&deadT>0.25)){
+    if(inR(nestRect))  return arm('nest',nestRect);
+    if(inR(todayRect)) return arm('today',todayRect);
+    if(inR(randRect))  return arm('rand',randRect);
+    if(state==='dead' && inR(riseRect)) return arm('rise',riseRect);
+    if(inR(shareRect)) return arm('share',shareRect);
+    if(!giftClaimed && giftAnim<0 && inR(giftRect)) return arm('gift',giftRect);
+    if(chalDone && !chalClaimed && inR(chalRect)) return arm('chal',chalRect);
   }
   // swallow taps while the gift or challenge reward is bursting so an
   // excited double-tap doesn't instantly restart and cut the show short
@@ -1072,6 +1063,11 @@ window.addEventListener('pointermove',e=>{
 },{passive:false});
 window.addEventListener('pointerup',e=>{
   pressDown=false;
+  if(pendBtn){
+    const [rx,ry,rw,rh]=pendBtn.r, act=pendBtn.act;
+    pendBtn=null;
+    if(e.clientX>=rx&&e.clientX<=rx+rw&&e.clientY>=ry&&e.clientY<=ry+rh) fireBtn(act);
+  }
   if(e.pointerId===pedalPid){ pedalOn=false; pedalPid=null; }
   if(swipePid===e.pointerId) swipePid=null;
   if(state==='shop' && shopPid===e.pointerId){
@@ -1080,7 +1076,7 @@ window.addEventListener('pointerup',e=>{
   }
 });
 window.addEventListener('pointercancel',e=>{
-  pressDown=false;
+  pressDown=false; pendBtn=null;
   if(e.pointerId===pedalPid){ pedalOn=false; pedalPid=null; }
   if(swipePid===e.pointerId) swipePid=null;
   if(shopPid===e.pointerId) shopPid=null;
