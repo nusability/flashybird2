@@ -32,7 +32,7 @@
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='3.21.2';
+const VERSION='3.22.0';
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
 
@@ -126,6 +126,8 @@ let runMaxCombo=0, runMaxStreak=0, runMaxSurf=0, runSpiral=false;
 function saveChp(){ try{ localStorage.setItem('fb_chp', JSON.stringify({d:TODAY,p:chProg})); }catch(e){} }
 // crash-screen gift box: -1 idle, >=0 animating (claim happens at tap)
 let giftAnim=-1, giftFly=[], giftLid=null, giftCount=0, giftPopT=0, giftRect=null;
+// onboarding: has this device ever flown, and has swipe-to-swoop been used?
+let seenPlay=false, diveUses=0;
 try{
   const g=k=>localStorage.getItem(k);
   best = +g('fb_best')||0;
@@ -143,6 +145,8 @@ try{
   const chp=JSON.parse(g('fb_chp')||'null');
   chProg = chp&&chp.d===TODAY ? +chp.p||0 : (chalDone?1e9:0);
   if(pace && pace.v!==1 && pace.v!==2) pace=null;   // v1 has score only, v2 adds position
+  seenPlay = g('fb_seen')==='1';
+  diveUses = +g('fb_dives')||0;
 }catch(e){}
 function save(){ try{
   localStorage.setItem('fb_best', best);
@@ -184,6 +188,33 @@ const SUPPLIES=[
   {id:'harness', name:'CRASH PADS',  cost:25, pack:5, cap:15, desc:'absorbs 5 hits, then gone'},
   {id:'egg',     name:'PHOENIX EGG', cost:40, pack:1, cap:9,  desc:'one rise, then gone'},
 ];
+/* ---------- debug switchboard: ?debug=reset,max,showmethemoney,poweroverwhelming,silversurfer
+   comma-combinable. The persistent ones (reset/max/showmethemoney) apply and
+   redirect to a clean URL — unless a runtime flag rides along, which must
+   stay in the URL to keep working. ---------- */
+const DBG={power:false, surfer:false};
+try{
+  const q=(new URLSearchParams(location.search).get('debug')||'').toLowerCase();
+  if(q){
+    const f=q.split(',').map(s=>s.trim());
+    let persisted=false;
+    if(f.includes('reset')){
+      for(const k of Object.keys(localStorage)) if(k.startsWith('fb_')) localStorage.removeItem(k);
+      best=0; bugs=0; up={}; stock={}; skin='bird'; track='wacky'; muted=false; pace=null;
+      giftClaimed=false; chalDone=false; chalClaimed=false; chProg=0; seenPlay=false; diveUses=0;
+      persisted=true;
+    }
+    if(f.includes('max')){
+      for(const k in UPG) up[k]=UPG[k].tiers;
+      for(const sp of SUPPLIES) stock[sp.id]=sp.cap;
+      save(); persisted=true;
+    }
+    if(f.includes('showmethemoney')){ bugs+=1000; save(); persisted=true; }
+    DBG.power=f.includes('poweroverwhelming');
+    DBG.surfer=f.includes('silversurfer');
+    if(persisted && !DBG.power && !DBG.surfer) location.replace(location.pathname);
+  }
+}catch(e){}
 /* daily gift (3-10 bugs) and daily challenge (3-20 bugs) — same for
    everyone worldwide, derived from the UTC date */
 let GIFT_AMT=3+hashStr(TODAY+'gift')%8;
@@ -597,6 +628,10 @@ let starMax=4.2, surfMax=4.5;
 let harnessLeft=0, phoenixLeft=0, buddy=false;
 let runBugs=0, runBugStreak=0, runGates=0;
 let pedalOn=false, pedalT=0, pedalPid=null, pedalLock=false, riseRect=null, todayRect=null, randRect=null, muteRect=null, deadStackY=0;
+// pressed-state tracking: where the active pointer is, while it's down
+let pressX=-1, pressY=-1, pressDown=false;
+const pressedIn=r=> pressDown && r && pressX>=r[0]&&pressX<=r[0]+r[2]&&pressY>=r[1]&&pressY<=r[1]+r[3];
+let hintT=0;   // first-flight primer cards countdown
 // UI scale for tappable controls: near full-size on phones where SC
 // (tuned for the playfield) would shrink buttons under thumb size
 const uiS=()=>Math.min(Math.max(SC, Math.min(W,H)/430), 1.1);
@@ -767,6 +802,9 @@ function reset(){
   chalAnim=-1; chalFly=[]; chalRect=null;
   spawnHead=650;
   for(let z=650; z<FAR; z+=wrand(300,420)){ spawn(z); spawnHead=z; }
+  // very first flight on this device: show the primer cards once
+  hintT = seenPlay ? 0 : 8;
+  if(!seenPlay){ seenPlay=true; try{ localStorage.setItem('fb_seen','1'); }catch(e){} }
   state='play'; noteI=0; if(ac) nextNote=ac.currentTime+0.05;
 }
 // one protection pool for every death source: per-run harness charges
@@ -836,12 +874,23 @@ function flap(){
 // wall and slams you into the floor: diving there is a deliberate gamble.
 function dive(){
   if(state!=='play') return;
+  if(diveUses<3){ diveUses++; try{ localStorage.setItem('fb_dives',diveUses); }catch(e){} }
   const yMax=R-BIRD_R-2;
   diveTo = bird.y > yMax*0.4 ? yMax+BIRD_R : Math.min(yMax*0.6, bird.y+yMax);
   bird.wing=0;
   beep(300,180,0.4,'sine',0.2);
   const [bx,by]=proj(0,bird.y,BZ);
   burst(bx,by-14*SC,5,(hue+180)%360,150*SC,3*SC);
+}
+// debug: ?debug=silversurfer — the slo-mo pedal press itself grants a
+// (stacking) silver surf, no board required
+function dbgSurf(){
+  if(state!=='play') return;
+  surfStack=Math.min(3,(surfT>0?surfStack:0)+1);
+  surfT=surfMax=[4.5,3.4,2.6][surfStack-1]+0.5*tier('surf');
+  const [sx,sy]=proj(0,bird.y,BZ);
+  pop(['SILVER SURF!','DOUBLE SURF!!','TRIPLE SURF!!!'][surfStack-1],sx,sy-60*SC,210,1);
+  sfx.power(); flashA=Math.max(flashA,0.35); flashHue=210;
 }
 
 /* ---------- share ---------- */
@@ -891,6 +940,7 @@ function press(){
   else if(state==='dead' && deadT>0.25){ reset(); flap(); }
 }
 window.addEventListener('pointerdown',e=>{
+  pressX=e.clientX; pressY=e.clientY; pressDown=true;
   if(state!=='shop'){
     const inMute = muteRect
       ? (e.clientX>=muteRect[0] && e.clientX<=muteRect[0]+muteRect[2] && e.clientY>=muteRect[1] && e.clientY<=muteRect[1]+muteRect[3])
@@ -903,9 +953,9 @@ window.addEventListener('pointerdown',e=>{
     shopPid=e.pointerId; shopY0=e.clientY; shopS0=shopScroll; shopMoved=false;
     return;
   }
-  if(state==='play' && tier('pedal')>0){
+  if(state==='play' && (tier('pedal')>0||DBG.surfer)){
     const dx=e.clientX-(W-66), dy=e.clientY-(H-66);
-    if(dx*dx+dy*dy < 52*52){ e.preventDefault(); initAudio(); pedalOn=true; pedalPid=e.pointerId; return; }
+    if(dx*dx+dy*dy < 52*52){ e.preventDefault(); initAudio(); pedalOn=true; pedalPid=e.pointerId; if(DBG.surfer) dbgSurf(); return; }
   }
   if(nestRect && (state==='title' || (state==='dead'&&deadT>0.25))){
     const [nx,ny,nw,nh]=nestRect;
@@ -977,6 +1027,7 @@ window.addEventListener('pointerdown',e=>{
   press();
 },{passive:false});
 window.addEventListener('pointermove',e=>{
+  if(pressDown){ pressX=e.clientX; pressY=e.clientY; }
   if(state==='play' && swipePid===e.pointerId){
     if(performance.now()-swipeT0<300 && e.clientY-swipeY0>Math.max(30,H*0.045)){ swipePid=null; dive(); }
   }
@@ -987,6 +1038,7 @@ window.addEventListener('pointermove',e=>{
   }
 },{passive:false});
 window.addEventListener('pointerup',e=>{
+  pressDown=false;
   if(e.pointerId===pedalPid){ pedalOn=false; pedalPid=null; }
   if(swipePid===e.pointerId) swipePid=null;
   if(state==='shop' && shopPid===e.pointerId){
@@ -995,6 +1047,7 @@ window.addEventListener('pointerup',e=>{
   }
 });
 window.addEventListener('pointercancel',e=>{
+  pressDown=false;
   if(e.pointerId===pedalPid){ pedalOn=false; pedalPid=null; }
   if(swipePid===e.pointerId) swipePid=null;
   if(shopPid===e.pointerId) shopPid=null;
@@ -1010,7 +1063,7 @@ window.addEventListener('keyup',e=>{ if(e.key==='Shift') pedalOn=false; });
 // input runs on pointer events so no click handlers are lost.
 window.addEventListener('touchend',e=>{ initAudio(); if(e.cancelable) e.preventDefault(); },{passive:false});
 window.addEventListener('keydown',e=>{
-  if(e.key==='Shift' && state==='play' && tier('pedal')>0){ pedalOn=true; return; }
+  if(e.key==='Shift' && state==='play' && (tier('pedal')>0||DBG.surfer)){ if(DBG.surfer&&!e.repeat) dbgSurf(); pedalOn=true; return; }
   if(e.repeat) return;
   if(e.code==='Escape' && state==='shop'){ closeShop(); return; }
   if(e.code==='Space'||e.code==='ArrowUp'||e.code==='KeyW'){ if(state!=='shop'){ e.preventDefault(); press(); } }
@@ -1053,6 +1106,7 @@ function update(dt){
   flashA=Math.max(0,flashA-dt*2.2);
   scorePop=Math.max(0,scorePop-dt*3);
   shopMsgT=Math.max(0,shopMsgT-dt*0.7);
+  if(state==='play') hintT=Math.max(0,hintT-dt);
   camY = lerp(camY, bird.y*0.35, 1-Math.pow(0.001,dt));
 
   const surfing = surfT>0;
@@ -1063,6 +1117,7 @@ function update(dt){
   for(const s of stars){ s.z-=adv*0.85; if(s.z<BZ+8){ s.z+=FAR-BZ; s.x=rand(-260,260); s.y=rand(-260,260);} }
 
   if(state==='play'){
+    if(DBG.power) starT=Math.max(starT,1.5);   // ?debug=poweroverwhelming
     dist += adv;
     spd = Math.min(TOPSPD, spd + 0.84*d);   // slow creep to a hard ceiling
     scoreF += (14+level*2)*mult*d;
@@ -1445,6 +1500,7 @@ function render(){
   ctx.globalCompositeOperation='source-over';
 
   drawHUD(surfing,starred);
+  if(state==='play' && hintT>0) drawHintCards();
 
   // popups
   ctx.textAlign='center'; ctx.textBaseline='middle';
@@ -1973,7 +2029,7 @@ function drawHUD(surfing,starred){
     ctx.textAlign='center';
   }
   // slo-mo pedal
-  if(state==='play' && tier('pedal')>0){
+  if(state==='play' && (tier('pedal')>0||DBG.surfer)){
     const pcx=W-66, pcy=H-66, pr=44;
     const active=pedalOn&&!pedalLock&&pedalT>0;
     ctx.fillStyle=active?'rgba(120,210,255,0.3)':'rgba(255,255,255,0.08)';
@@ -1981,7 +2037,7 @@ function drawHUD(surfing,starred){
     ctx.strokeStyle='rgba(140,220,255,0.4)'; ctx.lineWidth=3;
     ctx.beginPath(); ctx.arc(pcx,pcy,pr,0,TAU); ctx.stroke();
     ctx.strokeStyle= pedalLock?'hsl(25,100%,58%)':'hsl(195,100%,65%)'; ctx.lineWidth=4; ctx.lineCap='round';
-    ctx.beginPath(); ctx.arc(pcx,pcy,pr,-Math.PI/2,-Math.PI/2+TAU*(pedalT/pedalMax())); ctx.stroke();
+    ctx.beginPath(); ctx.arc(pcx,pcy,pr,-Math.PI/2,-Math.PI/2+TAU*(pedalMax()?pedalT/pedalMax():0)); ctx.stroke();
     ctx.fillStyle=`rgba(255,255,255,${active?1:0.6})`;
     ctx.font='800 13px system-ui,sans-serif';
     ctx.textAlign='center'; ctx.textBaseline='middle';
@@ -2002,6 +2058,69 @@ function drawHUD(surfing,starred){
   }
 }
 
+// first-flight primer: three little illustrated cards riding over the run —
+// tap to flap, avoid obstacles, grab power-ups
+function drawHintCards(){
+  const a=clamp(Math.min(hintT*1.5,(8-hintT)*2),0,1);
+  if(a<=0) return;
+  const US=uiS(), cw=104*US, ch=98*US, gp=10*US;
+  const y0=H-158*US;
+  ctx.save(); ctx.globalAlpha=a;
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  const labels=[['TAP','TO FLAP'],['AVOID','OBSTACLES'],['GRAB','POWER-UPS']];
+  for(let i=0;i<3;i++){
+    const bx=CX+(i-1)*(cw+gp), bob=Math.sin(t*2.2+i*1.8)*3*US;
+    ctx.save(); ctx.translate(bx,y0+bob);
+    ctx.fillStyle='rgba(5,1,15,0.78)';
+    ctx.strokeStyle=`hsla(${(hue+i*70)%360},100%,65%,0.85)`; ctx.lineWidth=2;
+    ctx.beginPath();
+    if(ctx.roundRect) ctx.roundRect(-cw/2,-ch/2,cw,ch,12*US); else ctx.rect(-cw/2,-ch/2,cw,ch);
+    ctx.fill(); ctx.stroke();
+    const iy=-ch*0.16;
+    if(i===0){
+      // fingertip with a tap ripple, and the bird hopping on each beat
+      const ph=(t*1.6)%1;
+      ctx.strokeStyle=`hsla(0,0%,100%,${0.8*(1-ph)})`; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.arc(-cw*0.2,iy+ch*0.10,(5+ph*13)*US,0,TAU); ctx.stroke();
+      ctx.fillStyle='#fff';
+      ctx.beginPath(); ctx.arc(-cw*0.2,iy+ch*0.10,4.5*US,0,TAU); ctx.fill();
+      ctx.save();
+      ctx.translate(cw*0.17, iy+ch*0.12-Math.abs(Math.sin(t*5))*9*US);
+      drawModel(skin, 6.5*US, null, 45, 100, 58, 0.3+Math.sin(t*9)*0.3);
+      ctx.restore();
+    } else if(i===1){
+      // a gate disc with its hole, and a little asteroid to the side
+      ctx.fillStyle='hsla(20,90%,55%,0.9)';
+      ctx.beginPath();
+      ctx.arc(-cw*0.06,iy+ch*0.06,15*US,0,TAU);
+      ctx.arc(-cw*0.06+6*US,iy+ch*0.06,6*US,0,TAU,true);
+      ctx.fill('evenodd');
+      ctx.fillStyle='hsl(260,15%,45%)';
+      ctx.save(); ctx.translate(cw*0.26,iy+ch*0.02); ctx.rotate(t*1.5);
+      ctx.beginPath();
+      for(let k2=0;k2<7;k2++){ const aa=k2/7*TAU, rr=(5+(k2%2)*2)*US; ctx[k2?'lineTo':'moveTo'](Math.cos(aa)*rr,Math.sin(aa)*rr); }
+      ctx.closePath(); ctx.fill(); ctx.restore();
+    } else {
+      // gold star + silver surfboard, the loot worth grabbing
+      ctx.save(); ctx.translate(-cw*0.02,iy+ch*0.04); ctx.rotate(Math.sin(t*2)*0.2);
+      ctx.fillStyle='hsl(50,100%,60%)';
+      ctx.shadowColor='hsl(50,100%,55%)'; ctx.shadowBlur=8*US;
+      ctx.beginPath();
+      for(let k2=0;k2<10;k2++){ const aa=-Math.PI/2+k2/10*TAU, rr=(k2%2?5:11)*US; ctx[k2?'lineTo':'moveTo'](Math.cos(aa)*rr,Math.sin(aa)*rr); }
+      ctx.closePath(); ctx.fill(); ctx.shadowBlur=0; ctx.restore();
+      ctx.fillStyle='#dfe9f5';
+      ctx.beginPath(); ctx.ellipse(cw*0.02,iy+ch*0.20,14*US,4*US,-0.12,0,TAU); ctx.fill();
+    }
+    ctx.fillStyle='#fff';
+    ctx.font=`900 ${Math.round(11.5*US)}px system-ui,sans-serif`;
+    ctx.fillText(labels[i][0],0,ch*0.20);
+    ctx.font=`700 ${Math.round(9.5*US)}px system-ui,sans-serif`;
+    ctx.fillStyle='rgba(255,255,255,0.75)';
+    ctx.fillText(labels[i][1],0,ch*0.34);
+    ctx.restore();
+  }
+  ctx.restore();
+}
 function drawTitle(){
   ctx.textAlign='center'; ctx.textBaseline='middle';
   const wob=Math.sin(t*2)*6*SC;
@@ -2037,6 +2156,8 @@ function drawTitle(){
     drawCorners();
     drawGift();
     drawChalBand();
+    pressGlow(giftRect,14);
+    pressGlow(chalRect,0);
   }
   ctx.font=`600 ${Math.round(10*US)}px system-ui,sans-serif`;
   ctx.fillStyle='rgba(255,255,255,0.3)';
@@ -2058,11 +2179,22 @@ function nestAlert(){
   for(const sk of SKINS) if(!ownsSkin(sk.id) && bugs>=sk.cost) return true;
   return false;
 }
+// soft white wash over a rect while the finger rests on it — the pressed
+// state for buttons whose art is drawn inline rather than via a helper
+function pressGlow(r,rad){
+  if(!pressedIn(r)) return;
+  ctx.save(); ctx.fillStyle='rgba(255,255,255,0.15)';
+  ctx.beginPath();
+  if(ctx.roundRect&&rad) ctx.roundRect(r[0],r[1],r[2],r[3],rad); else ctx.rect(r[0],r[1],r[2],r[3]);
+  ctx.fill(); ctx.restore();
+}
 function pillBtn(cx,cy,bw,bh,label,h2,alert){
   // typography and trim scale with the pill itself, so callers size
   // buttons for thumbs and the label follows
   ctx.save(); ctx.translate(cx,cy);
-  ctx.fillStyle='rgba(255,255,255,0.10)';
+  const prs=pressedIn([cx-bw/2,cy-bh/2,bw,bh]);
+  if(prs) ctx.scale(0.93,0.93);
+  ctx.fillStyle=prs?'rgba(255,255,255,0.22)':'rgba(255,255,255,0.10)';
   ctx.strokeStyle=`hsl(${h2},100%,65%)`; ctx.lineWidth=Math.max(2,bh*0.05);
   ctx.beginPath();
   if(ctx.roundRect) ctx.roundRect(-bw/2,-bh/2,bw,bh,bh/2); else ctx.rect(-bw/2,-bh/2,bw,bh);
@@ -2084,7 +2216,9 @@ function pillBtn(cx,cy,bw,bh,label,h2,alert){
 // corner utility button: rounded square, vector icon on top, tiny label
 function cornerBtn(cx,cy,S,label,h2,alert,icon,badge){
   ctx.save(); ctx.translate(cx,cy);
-  ctx.fillStyle='rgba(255,255,255,0.08)';
+  const prs=pressedIn([cx-S/2,cy-S/2,S,S]);
+  if(prs) ctx.scale(0.92,0.92);
+  ctx.fillStyle=prs?'rgba(255,255,255,0.20)':'rgba(255,255,255,0.08)';
   ctx.strokeStyle=`hsla(${h2},100%,65%,0.8)`; ctx.lineWidth=Math.max(1.5,S*0.035);
   ctx.beginPath();
   if(ctx.roundRect) ctx.roundRect(-S/2,-S/2,S,S,S*0.28); else ctx.rect(-S/2,-S/2,S,S);
@@ -2181,6 +2315,17 @@ function segPill(cx,cy,w,h){
   ctx.fill(); ctx.stroke();
   ctx.strokeStyle='rgba(255,255,255,0.25)'; ctx.lineWidth=Math.max(1.5,h*0.03);
   ctx.beginPath(); ctx.moveTo(0,-h/2+h*0.16); ctx.lineTo(0,h/2-h*0.16); ctx.stroke();
+  // pressed half lights up (the pill is two buttons in one skin)
+  for(const side of [0,1]){
+    if(pressedIn([cx-w/2+side*w/2, cy-h/2, w/2, h])){
+      ctx.save(); ctx.beginPath();
+      if(ctx.roundRect) ctx.roundRect(-w/2,-h/2,w,h,h/2); else ctx.rect(-w/2,-h/2,w,h);
+      ctx.clip();
+      ctx.fillStyle='rgba(255,255,255,0.15)';
+      ctx.fillRect(-w/2+side*w/2,-h/2,w/2,h);
+      ctx.restore();
+    }
+  }
   ctx.textAlign='center'; ctx.textBaseline='middle';
   ctx.font=`800 ${Math.round(h*0.32)}px system-ui,sans-serif`;
   ctx.fillStyle='hsl(200,100%,76%)';
@@ -2384,6 +2529,22 @@ function drawShop(){
   ctx.fillStyle='rgba(255,255,255,0.4)';
   ctx.fillText('catch glowbugs in the tunnel to earn', CX, my+44*SS+26*SS);
   const contentEnd=my+44*SS+44*SS;
+  // pressed feedback: the row under the finger lights up while the tap is
+  // still undecided (shop taps resolve on pointerup)
+  if(pressDown && !shopMoved && pressY>=shopHeadH){
+    const yy=pressY+shopScroll;
+    for(const s2 of shopRects){
+      if(s2.fixed) continue;
+      const [rx,ry,rw,rh]=s2.r;
+      if(pressX>=rx&&pressX<=rx+rw&&yy>=ry&&yy<=ry+rh){
+        ctx.fillStyle='rgba(255,255,255,0.13)';
+        ctx.beginPath();
+        if(ctx.roundRect) ctx.roundRect(rx,ry,rw,rh,10); else ctx.rect(rx,ry,rw,rh);
+        ctx.fill();
+        break;
+      }
+    }
+  }
   ctx.restore();
   shopMaxScroll=Math.max(0, contentEnd-H);
   shopScroll=clamp(shopScroll,0,shopMaxScroll);
@@ -2408,6 +2569,7 @@ function drawShop(){
   ctx.strokeStyle='rgba(255,255,255,0.85)'; ctx.lineWidth=3; ctx.lineCap='round';
   ctx.beginPath(); ctx.moveTo(xr[0]+12,xr[1]+12); ctx.lineTo(xr[0]+28,xr[1]+28);
   ctx.moveTo(xr[0]+28,xr[1]+12); ctx.lineTo(xr[0]+12,xr[1]+28); ctx.stroke();
+  pressGlow(xr,10);
   // slim scroll indicator
   if(shopMaxScroll>0){
     const trackH=H-headH-20, thH=Math.max(30,trackH*H/contentEnd);
@@ -2503,6 +2665,35 @@ function drawDead(){
   ctx.font=`700 ${Math.round(14*SC)}px system-ui,sans-serif`;
   ctx.fillStyle='rgba(255,255,255,0.5)';
   ctx.fillText('DIST '+Math.floor(dist), CX, CY-52*SC);
+  // swipe-to-swoop primer: an animated finger dragging down, shown until
+  // the move has actually been used a few times
+  if(diveUses<3 && !shareShot){
+    const US=uiS(), hw=Math.min(258*US,W-24), hh=58*US;
+    ctx.save();
+    ctx.globalAlpha=clamp(deadT*2,0,1);
+    ctx.translate(CX,CY+2*SC);
+    ctx.fillStyle='rgba(5,1,15,0.80)';
+    ctx.strokeStyle='hsla(195,100%,65%,0.9)'; ctx.lineWidth=2;
+    ctx.beginPath();
+    if(ctx.roundRect) ctx.roundRect(-hw/2,-hh/2,hw,hh,hh/2); else ctx.rect(-hw/2,-hh/2,hw,hh);
+    ctx.fill(); ctx.stroke();
+    const ph=(t*1.1)%1, fx=-hw/2+hh*0.62, fy=(-0.26+ph*0.5)*hh;
+    ctx.strokeStyle='rgba(140,220,255,0.55)'; ctx.lineWidth=4*US; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(fx,-hh*0.26); ctx.lineTo(fx,fy); ctx.stroke();
+    ctx.fillStyle='#fff';
+    ctx.beginPath(); ctx.arc(fx,fy,5.5*US,0,TAU); ctx.fill();
+    ctx.strokeStyle='hsl(195,100%,70%)'; ctx.lineWidth=2.5*US; ctx.lineJoin='round';
+    ctx.beginPath(); ctx.moveTo(fx-5*US,hh*0.16); ctx.lineTo(fx,hh*0.30); ctx.lineTo(fx+5*US,hh*0.16); ctx.stroke();
+    ctx.textAlign='left';
+    ctx.fillStyle='#fff';
+    ctx.font=`900 ${Math.round(15*US)}px system-ui,sans-serif`;
+    ctx.fillText('SWIPE DOWN', fx+hh*0.40, -hh*0.15);
+    ctx.font=`700 ${Math.round(11*US)}px system-ui,sans-serif`;
+    ctx.fillStyle='rgba(255,255,255,0.75)';
+    ctx.fillText('to swoop out of danger', fx+hh*0.40, hh*0.17);
+    ctx.restore();
+    ctx.textAlign='center';
+  }
   if(deadT>0.25 && !shareShot){
     const rise=canRise();
     const US=uiS();
@@ -2518,7 +2709,8 @@ function drawDead(){
       const pl=0.5+Math.sin(t*6)*0.5;
       ctx.save();
       ctx.translate(CX,ry+rh/2);
-      ctx.scale(1+Math.sin(t*5)*0.04, 1+Math.sin(t*5)*0.04);
+      const rps=(1+Math.sin(t*5)*0.04)*(pressedIn(riseRect)?0.93:1);
+      ctx.scale(rps,rps);
       const rg=ctx.createLinearGradient(-rw/2,0,rw/2,0);
       rg.addColorStop(0,'hsl(8,100%,50%)');
       rg.addColorStop(0.5,'hsl(35,100%,55%)');
@@ -2547,6 +2739,8 @@ function drawDead(){
     drawCorners();
     drawGift();
     drawChalBand();
+    pressGlow(giftRect,14);
+    pressGlow(chalRect,0);
   } else { shareRect=null; nestRect=null; giftRect=null; riseRect=null; chalRect=null; todayRect=null; randRect=null; }
 }
 
