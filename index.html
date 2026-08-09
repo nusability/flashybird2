@@ -32,7 +32,7 @@
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='3.22.1';
+const VERSION='3.22.2';
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
 
@@ -2338,7 +2338,7 @@ function segPill(cx,cy,w,h){
   todayRect=[cx-w/2,cy-h/2,w/2,h];
   randRect =[cx,cy-h/2,w/2,h];
 }
-let shopMsg='', shopMsgT=0;
+let shopMsg='', shopMsgT=0, truckTaps=0;
 let shopScroll=0, shopMaxScroll=0, shopPid=null, shopY0=0, shopS0=0, shopMoved=false, shopHeadH=0;
 function openShop(){ if(state!=='shop'){ shopFrom=state; state='shop'; shopScroll=0; } }
 function closeShop(){ state = shopFrom==='dead' ? 'dead' : 'title'; }
@@ -2597,6 +2597,9 @@ function shopTap(x,y){
     const [rx,ry,rw,rh]=s2.r;
     const yy = s2.fixed ? y : y + shopScroll;   // content rects live in scroll space
     if(x<rx||x>rx+rw||yy<ry||yy>ry+rh) continue;
+    // 7 consecutive taps on the ice cream truck force a fresh reload with a
+    // cache-busting param — home-screen web apps have no reload button
+    if(!(s2.a==='skin' && s2.id==='truck')) truckTaps=0;
     if(s2.a==='close'){ closeShop(); return; }
     if(s2.a==='buy'){
       const u=UPG[s2.k], tr=tier(s2.k);
@@ -2608,6 +2611,14 @@ function shopTap(x,y){
     }
     if(s2.a==='skin'){
       const sk=SKINS.find(q=>q.id===s2.id);
+      if(sk.id==='truck' && ++truckTaps>=7){
+        try{
+          const u=new URL(location.href);
+          u.searchParams.set('reload', Math.random().toString(36).slice(2,10));
+          location.replace(u.href);
+        }catch(e){}
+        return;
+      }
       if(ownsSkin(sk.id)){ skin=sk.id; save(); sfx.gem(); }
       else if(bugs>=sk.cost){ bugs-=sk.cost; up['skin_'+sk.id]=1; skin=sk.id; save(); sfx.power(); shopSay(sk.name+' UNLOCKED!'); }
       else { beep(180,120,0.18,'square',0.2); shopSay('need '+sk.cost+' bugs'); }
