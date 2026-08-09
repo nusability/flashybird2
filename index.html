@@ -32,7 +32,7 @@
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='3.22.0';
+const VERSION='3.22.1';
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
 
@@ -636,7 +636,7 @@ let hintT=0;   // first-flight primer cards countdown
 // (tuned for the playfield) would shrink buttons under thumb size
 const uiS=()=>Math.min(Math.max(SC, Math.min(W,H)/430), 1.1);
 let shopFrom='title', shopRects=[], nestRect=null;
-let crashY=0;
+let crashY=0, crashSwoop=false; // was the fatal hit one a swoop would have dodged?
 /* per-tunnel PB: shown on the title screen, celebrated when beaten */
 let paceBeat=false;
 let newBestShown=false, deadT=0;
@@ -820,7 +820,9 @@ function absorbHit(sx,sy){
   burst(sx,sy,20,30,320*SC,5*SC);
   return true;
 }
-function die(){
+// dsave: true when the safe opening was below the bird at impact — i.e. a
+// swipe-down swoop would have dodged this death (drives the swoop hint)
+function die(dsave){
   if(starT>0||surfT>0) return;
   if(buddy){
     // the fellow bird swoops into your place — the ride continues
@@ -833,7 +835,7 @@ function die(){
   // phoenix no longer auto-triggers: the crash screen offers RISE AGAIN
   // and the player decides whether to spend a feather charge or an egg
   state='dead'; deadT=0;
-  crashY=bird.y;
+  crashY=bird.y; crashSwoop=!!dsave;
   if(!chalDone && CHAL.cur()>chProg){ chProg=CHAL.cur(); saveChp(); }
   // freeze boulder sway at the instant of impact so the guilty rock stays put
   for(const en of ents) if(en.type==='rocks') en.tF=t;
@@ -1172,7 +1174,7 @@ function update(dt){
     if(Math.abs(bird.y) > R-BIRD_R-2){
       bird.y=clamp(bird.y,-(R-BIRD_R-2),R-BIRD_R-2); diveTo=null;
       if(shield0||starT>0||surfT>0||graceT>0){ bird.vy*= -0.4; }
-      else { const [wx,wy]=proj(0,bird.y,BZ); if(absorbHit(wx,wy)){ bird.vy*= -0.4; } else die(); }
+      else { const [wx,wy]=proj(0,bird.y,BZ); if(absorbHit(wx,wy)){ bird.vy*= -0.4; } else die(bird.y<0); }
     }
     trail.unshift(bird.y); if(trail.length>14) trail.length=14;
 
@@ -1205,7 +1207,7 @@ function update(dt){
             gain(12,'SMASH!',sx,sy-60*SC,e.hue); comboSmash(sx,sy); sfx.smash(); burst(sx,sy,30,e.hue,420*SC,6*SC); shake=Math.max(shake,10);
           } else if(graceT>0){ /* silent grace pass-through */ }
           else if(absorbHit(sx,sy)){}
-          else die();
+          else die(e.y - bird.y > 6);
         }
         else if(e.type==='bar'){
           // bar lands vertical (aligned with the flap axis); the bird's
@@ -1219,7 +1221,7 @@ function update(dt){
           else if(inv){ gain(10,'ZAP!',sx,sy-60*SC,10); comboSmash(sx,sy); sfx.smash(); burst(sx,sy,24,10,380*SC,5*SC); }
           else if(graceT>0){ /* silent */ }
           else if(absorbHit(sx,sy)){}
-          else die();
+          else die((Math.sin(e.af)>0?1:-1)*e.d - bird.y > 6);
         }
         else if(e.type==='rocks'){
           let hit=false, close=false;
@@ -1234,7 +1236,7 @@ function update(dt){
             if(inv){ gain(12,'SMASH!',sx,sy-60*SC,280); comboSmash(sx,sy); sfx.smash(); burst(sx,sy,30,280,420*SC,6*SC); shake=Math.max(shake,10); }
             else if(graceT>0){ /* silent */ }
             else if(absorbHit(sx,sy)){}
-            else die();
+            else die([-48,-26,0,26,48].some(sy2=> sy2 - bird.y > 6 && e.rocks.every(r=> r.deco || Math.abs(r.y-sy2)>8)));
           }
           else { combo++; gain(15,null,sx,sy,0); sfx.ding(combo); if(close){ gain(15,'CLOSE!',sx,sy-100*SC,55,0); sfx.close(); } }
         }
@@ -2665,9 +2667,10 @@ function drawDead(){
   ctx.font=`700 ${Math.round(14*SC)}px system-ui,sans-serif`;
   ctx.fillStyle='rgba(255,255,255,0.5)';
   ctx.fillText('DIST '+Math.floor(dist), CX, CY-52*SC);
-  // swipe-to-swoop primer: an animated finger dragging down, shown until
-  // the move has actually been used a few times
-  if(diveUses<3 && !shareShot){
+  // swipe-to-swoop primer: an animated finger dragging down — shown only
+  // when THIS crash had its safe opening below the bird (a swoop would
+  // have saved it), and only until the move has been used a few times
+  if(crashSwoop && diveUses<3 && !shareShot){
     const US=uiS(), hw=Math.min(258*US,W-24), hh=58*US;
     ctx.save();
     ctx.globalAlpha=clamp(deadT*2,0,1);
