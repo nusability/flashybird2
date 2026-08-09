@@ -32,7 +32,7 @@
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='3.21.1';
+const VERSION='3.21.2';
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
 
@@ -97,10 +97,12 @@ const lerp=(a,b,k)=>a+(b-a)*k;
 const TAU=Math.PI*2;
 
 /* difficulty is keyed off DISTANCE (deterministic given input), not score,
-   and saturates at level 6 (~54k) so the game plateaus — infinitely playable.
-   (was 10: past level 6 the geometry demanded vertical moves the bird's fixed
-   agility physically cannot make, so perfect play still died) */
-const dlvl=()=>Math.min(level,6);
+   and saturates at level 3 (~27k) so the game plateaus — infinitely playable.
+   The plateau is pinned to the 27-30k experience: past it the course repeats
+   that difficulty forever instead of growing further. (Was 10, then 6: both
+   left the plateau above what sustained human play can hold — the game must
+   end on a mistake, not on the curve outgrowing the player.) */
+const dlvl=()=>Math.min(level,3);
 
 /* ---------- world constants ---------- */
 const R = 64;          // tunnel radius (world units)
@@ -1241,12 +1243,13 @@ function update(dt){
     spawnHead -= adv;
     while(spawnHead < FAR){
       // hold the obstacle *cadence* (seconds between entities) flat once the
-      // speed ramp outpaces the course: past ~30k the gap stretches with the
-      // no-surf speed estimate, so reaction time stops shrinking forever
+      // speed ramp outpaces the course: past ~27k the gap stretches with the
+      // no-surf speed estimate, pinning reaction time at the ~0.9s the 30k
+      // stretch allows instead of shrinking forever
       const base = wrand(260,380);
       const wzg = dist + spawnHead;
       const spdEst = Math.min(TOPSPD, Math.sqrt(62500 + 1.68*wzg));
-      const gap = base*Math.max(1 - dlvl()*10/base, spdEst/372);
+      const gap = base*Math.max(1 - dlvl()*10/base, spdEst/360);
       spawnHead += gap; spawn(spawnHead);
     }
     score=Math.floor(scoreF);
