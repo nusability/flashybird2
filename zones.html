@@ -79,7 +79,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.4.1 zones beta';
+const VERSION='Z0.5 zones beta';
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
 
@@ -1302,7 +1302,7 @@ function mpWin(){          // every zone from the very first to the veiled ones
   return ns.map(n=>({n, vis: n<ZP.cur?'done': n===ZP.cur?'current': n===ZP.cur+1?'next':'hidden'}));
 }
 const mpZoneTop=(win,i)=>(win.length-1-i)*G.ZONE_H;
-let mpCam=0, mpSnapZi=0, mpDragging=false, mpY0=0, mpCam0=0, mpMoved=false, mpVel=0, mpLastY=0;
+let mpCam=0, mpSnapZi=0, mpFocusZi=0, mpDragging=false, mpY0=0, mpCam0=0, mpMoved=false, mpVel=0, mpLastY=0;
 let mpToast='', mpToastT=0, mpToastHue=140, mpTopRect=null, mpBrief=null;
 function mpMaybeBrief(){
   const tr=zoneTraits(ZP.cur);
@@ -1332,13 +1332,15 @@ function mpTap(ux,wy){
   const win=mpWin();
   const zi=clamp(win.length-1-Math.floor(clamp(wy,0,win.length*G.ZONE_H-1)/G.ZONE_H),0,win.length-1);
   const z=win[zi], top=mpZoneTop(win,zi), ly=wy-top;
-  { // screen-space pills first
+  { // screen-space buttons first
     const sx=ux*mpS0(), sy=(wy-mpCam)*mpS0();
     const hit=r=>r&&sx>=r[0]&&sx<=r[0]+r[2]&&sy>=r[1]&&sy<=r[1]+r[3];
+    if(hit(muteRect)){ muted=!muted; save(); applyMute(); return; }
+    if(hit(nestRect)){ initAudio(); openShop(); return; }
     if(hit(deepRect)){ state='title'; return; }
     if(hit(mpTopRect)){ mpSnapCur(); return; }
   }
-  if(z.vis==='next' && ly>G.ZONE_H-22 && zoneTraits(z.n).length){
+  if(z.vis==='next' && zi===mpFocusZi && ly>G.ZONE_H-22 && zoneTraits(z.n).length){
     mpBrief={n:z.n, traits:zoneTraits(z.n)}; return;      // peek the coming twists
   }
   if(z.vis==='next'||z.vis==='hidden'){ mpSay('the tunnel ahead is still dark…',260); return; }
@@ -1358,7 +1360,7 @@ function mpTap(ux,wy){
       return;
     }
   }
-  if(ly>G.ZONE_H-22 && zoneTraits(z.n).length){
+  if(zi===mpFocusZi && ly>G.ZONE_H-22 && zoneTraits(z.n).length){
     mpBrief={n:z.n, traits:zoneTraits(z.n)}; return;      // ⚡ line explains itself
   }
   const TH3=zoneInfo(z.n).TH;                // empty-space taps reach the theme
@@ -1388,6 +1390,7 @@ function mpWavy(txt,x,y,size){
 function mpDraw(){
   const win=mpWin(), mpS=mpS0();
   if(!mpDragging) mpCam+=(mpZoneCam(win,mpSnapZi)-mpCam)*Math.min(1,0.12);
+  mpFocusZi=clamp(win.length-1-Math.floor(clamp(mpCam+H/mpS/2,0,win.length*G.ZONE_H-1)/G.ZONE_H),0,win.length-1);
   mpToastT=Math.max(0,mpToastT-0.017);
   ctx.fillStyle='#05010f'; ctx.fillRect(0,0,W,H);
   ctx.save(); ctx.scale(mpS,mpS);
@@ -1503,17 +1506,9 @@ function mpDraw(){
   }
   ctx.restore();
   /* chrome (screen space) */
-  const cur=zoneInfo(ZP.cur);
-  const hg=ctx.createLinearGradient(0,0,0,58);
-  hg.addColorStop(0,'rgba(5,1,15,0.92)'); hg.addColorStop(1,'rgba(5,1,15,0)');
-  ctx.fillStyle=hg; ctx.fillRect(0,0,W,58);
-  ctx.save(); ctx.scale(mpS,mpS);
-  ctx.fillStyle='#fff'; ctx.shadowColor='hsla('+cur.P.hue+',100%,60%,1)';
-  mpWavy('ZONE '+ZP.cur+' · '+cur.TH.name,G.UNIT_W/2,24,13.5);
-  ctx.shadowBlur=0;
-  ctx.restore();
-  mpDrawBrief();
-  const US=uiS();
+  const US=uiS(), S3=52*US;
+  muteRect=cornerBtn(12+S3/2, 12+S3/2, S3, muted?'MUTED':'SOUND', 190, false, soundIcon);
+  nestRect=cornerBtn(W-12-S3/2, 12+S3/2, S3, 'NEST', (hue+120)%360, nestAlert(), nestIcon, String(bugs));
   deepRect=pillBtn(14+66*US, H-40*US, 132*US, 40*US, 'DEEP TUNNEL', 210, false);
   const curIdx=win.findIndex(z2=>z2.vis==='current');
   if(mpSnapZi!==curIdx || Math.abs(mpCam-mpZoneCam(win,curIdx))>G.ZONE_H*0.6){
@@ -1522,6 +1517,7 @@ function mpDraw(){
   ctx.textAlign='right'; ctx.textBaseline='middle';
   ctx.font='700 10px system-ui,sans-serif'; ctx.fillStyle='rgba(255,255,255,0.45)';
   ctx.fillText('★ '+ZP.total+'   ·   swipe for zones · tap a level',W-12,H-20);
+  mpDrawBrief();
 }
 function mpPath(mz,dist2){
   const lut=mz.lut;
@@ -1603,16 +1599,18 @@ function mpZoneUI(win,zi){
     ctx.save(); ctx.rotate(Math.sin(t*0.7)*0.06); ctx.globalAlpha=rr===1?0.9:0.3;
     ctx.beginPath(); ctx.ellipse(0,0,26*rr,10*rr,0,0,TAU); ctx.stroke(); ctx.restore(); }
   ctx.shadowBlur=0; ctx.restore();
-  let plate='ZONE '+z.n+' · '+TH.name;
-  if(z.vis==='done') plate+='  ★'+st.reduce((a,b)=>a+b,0)+'/21';
-  ctx.fillStyle=P.text; ctx.shadowColor='hsla('+P.hue+',100%,60%,1)'; ctx.shadowBlur=9;
-  mpWavy(plate,cx,G.ZONE_H-24,G.TEXT.zone-2);
-  ctx.shadowBlur=0;
-  const ztr=zoneTraits(z.n);
-  if(ztr.length){
-    ctx.font='800 9px system-ui,sans-serif'; ctx.textAlign='center';
-    ctx.fillStyle='hsla('+P.hue+',90%,75%,0.9)';
-    ctx.fillText('⚡ '+ztr.map(k=>ZTRAITS[k].name).join(' · '),cx,G.ZONE_H-8);
+  if(zi===mpFocusZi){                   // one zone announces itself at a time
+    let plate='ZONE '+z.n+' · '+TH.name;
+    if(z.vis==='done') plate+='  ★'+st.reduce((a,b)=>a+b,0)+'/21';
+    ctx.fillStyle=P.text; ctx.shadowColor='hsla('+P.hue+',100%,60%,1)'; ctx.shadowBlur=9;
+    mpWavy(plate,cx,G.ZONE_H-24,G.TEXT.zone-2);
+    ctx.shadowBlur=0;
+    const ztr=zoneTraits(z.n);
+    if(ztr.length){
+      ctx.font='800 9px system-ui,sans-serif'; ctx.textAlign='center';
+      ctx.fillStyle='hsla('+P.hue+',90%,75%,0.9)';
+      ctx.fillText('⚡ '+ztr.map(k=>ZTRAITS[k].name).join(' · '),cx,G.ZONE_H-8);
+    }
   }
   ctx.restore();
 }
@@ -1626,7 +1624,7 @@ function mpVeil(win,zi){
   vg.addColorStop(0,hexA(P.veil,0)); vg.addColorStop(1,hexA(P.veil,a));
   ctx.fillStyle=vg; ctx.fillRect(0,G.ZONE_H-BLEND,G.UNIT_W,BLEND);
   ctx.fillStyle=hexA(P.veil,a); ctx.fillRect(0,-1,G.UNIT_W,G.ZONE_H-BLEND+1);
-  if(z.vis==='next'){
+  if(z.vis==='next' && zi===mpFocusZi){
     ctx.fillStyle='rgba(255,255,255,0.8)'; ctx.shadowColor='hsla('+P.hue+',100%,60%,0.9)'; ctx.shadowBlur=9;
     mpWavy('ZONE '+z.n+' · '+info.TH.name,cx,G.ZONE_H-24,G.TEXT.zone-2);
     ctx.shadowBlur=0;
@@ -2698,22 +2696,6 @@ function drawHUD(surfing,starred){
   ctx.fillText(state==='title'? '' : String(score), 0, 0);
   ctx.shadowBlur=0;
   ctx.restore();
-  // level progress under the score
-  if(state==='play' && levelQ){
-    const bw2=170*SC, by2=64*SC;
-    ctx.fillStyle='rgba(255,255,255,0.18)'; ctx.fillRect(CX-bw2/2,by2,bw2,5*SC);
-    ctx.fillStyle=`hsl(${hue},100%,65%)`; ctx.fillRect(CX-bw2/2,by2,bw2*clamp(dist/levelQ.len,0,1),5*SC);
-    const cs=2.5*SC;
-    for(let ci=0;ci<2;ci++) for(let cj=0;cj<2;cj++){
-      ctx.fillStyle=(ci+cj)%2?'#15152a':'#fff';
-      ctx.fillRect(CX+bw2/2+1.5*SC+ci*cs, by2+cj*cs, cs, cs);
-    }
-    if(levelQ.traits.length){
-      ctx.font=`800 ${Math.round(9.5*SC)}px system-ui,sans-serif`;
-      ctx.fillStyle='rgba(255,255,255,0.55)'; ctx.textAlign='center';
-      ctx.fillText(levelQ.traits.map(tr=>ZTRAITS[tr].name).join(' · '), CX, by2+13*SC);
-    }
-  }
   // combo
   if(state==='play' && combo>=2){
     ctx.font=`800 ${Math.round(21*SC)}px system-ui,sans-serif`;
@@ -2747,8 +2729,25 @@ function drawHUD(surfing,starred){
     ctx.fillStyle=`hsl(320,100%,${60+Math.sin(t*10)*12}%)`;
     ctx.fillText('×'+mult, W-16*SC, 16*SC);
   }
+  // level progress lives at the very bottom with the other status bars
+  if(state==='play' && levelQ){
+    const bw2=190*SC, by2=H-12;
+    ctx.fillStyle='rgba(255,255,255,0.18)'; ctx.fillRect(CX-bw2/2,by2,bw2,6);
+    ctx.fillStyle=`hsl(${hue},100%,65%)`; ctx.fillRect(CX-bw2/2,by2,bw2*clamp(dist/levelQ.len,0,1),6);
+    for(let ci=0;ci<2;ci++) for(let cj=0;cj<2;cj++){
+      ctx.fillStyle=(ci+cj)%2?'#15152a':'#fff';
+      ctx.fillRect(CX+bw2/2+2+ci*3, by2+cj*3, 3, 3);
+    }
+    if(levelQ.traits.length){
+      ctx.save();
+      ctx.font=`800 ${Math.round(10*SC)}px system-ui,sans-serif`;
+      ctx.fillStyle='rgba(255,255,255,0.5)'; ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText(levelQ.traits.map(tr=>ZTRAITS[tr].name).join(' · '), CX, by2-8);
+      ctx.restore(); ctx.textBaseline='top'; ctx.textAlign='center';
+    }
+  }
   // power timers
-  let ty=H-26*SC;
+  let ty=H-26*SC-(state==='play'&&levelQ?18:0);
   const barW=170*SC;
   if(surfing){
     ctx.fillStyle='rgba(200,230,255,0.25)'; ctx.fillRect(CX-barW/2,ty,barW,8*SC);
@@ -3130,7 +3129,7 @@ const SKIN_DEBUG={
 };
 let shopScroll=0, shopMaxScroll=0, shopPid=null, shopY0=0, shopS0=0, shopMoved=false, shopHeadH=0;
 function openShop(){ if(state!=='shop'){ shopFrom=state; state='shop'; shopScroll=0; } }
-function closeShop(){ state = shopFrom==='dead' ? 'dead' : 'title'; }
+function closeShop(){ state = shopFrom==='dead' ? 'dead' : shopFrom==='map' ? 'map' : 'title'; }
 function drawShop(){
   shopRects=[];
   // the shop gets its own scale: near-full-size type on phones (the
