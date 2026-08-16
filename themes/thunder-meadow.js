@@ -30,7 +30,7 @@ registerTheme({
     const sp=(t*0.6+seed*7)%7;
     if(sp<0.4){                                                  // graze-spark!
       const a=Math.sin(sp/0.4*Math.PI);
-      FX.glow(ctx,()=>{ ctx.strokeStyle=hexA(P.accent===undefined?'#ffe94a':P.accent,0.9*a);
+      FX.glow(ctx,()=>{ ctx.strokeStyle=hexA(P.accent,0.9*a);
         ctx.lineWidth=1.8; ctx.beginPath(); ctx.moveTo(0,s*0.4);
         ctx.lineTo(-s*0.08,s*0.58); ctx.lineTo(s*0.06,s*0.62); ctx.lineTo(-s*0.04,s*0.82);
         ctx.stroke(); });
