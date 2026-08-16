@@ -79,7 +79,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.3 zones beta';
+const VERSION='Z0.3.1 zones beta';
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
 
@@ -1083,7 +1083,7 @@ function startLevel(n,k,x2){
   seedStr=levelQ.seed;
   pace=null; paceBeat=true;   // tunnel PB is a deep-tunnel concept — levels use stars
   reset();
-  levelQ.traits.forEach((tr,i)=>pop(ZTRAITS[tr].name+'!',CX,CY-150*SC-i*34*SC,(300+i*40)%360,1.25));
+  levelQ.traits.forEach((tr,i)=>pop(ZTRAITS[tr].name+' — '+ZTRAITS[tr].desc,CX,CY-150*SC-i*36*SC,(300+i*40)%360,0.95));
 }
 function levelDone(){
   score=Math.floor(scoreF);
@@ -1110,6 +1110,41 @@ function exitToMap(){
 }
 
 
+
+/* the zone briefing: what this zone's twists actually do — auto-shown once
+   per new zone, reopened by tapping any zone plate's lightning line */
+function mpDrawBrief(){
+  if(!mpBrief) return;
+  const US=uiS(), trs=mpBrief.traits;
+  const w=Math.min(324*US,W-24), rowH=46*US, h=86*US+trs.length*rowH;
+  const x0=W/2-w/2, y0=H/2-h/2;
+  ctx.fillStyle='rgba(5,1,15,0.62)'; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='rgba(10,4,26,0.97)';
+  ctx.strokeStyle='hsl(48,100%,65%)'; ctx.lineWidth=2;
+  ctx.beginPath();
+  if(ctx.roundRect) ctx.roundRect(x0,y0,w,h,16*US); else ctx.rect(x0,y0,w,h);
+  ctx.fill(); ctx.stroke();
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.font=`900 ${Math.round(17*US)}px system-ui,sans-serif`;
+  ctx.fillStyle='#fff'; ctx.shadowColor='hsl(48,100%,55%)'; ctx.shadowBlur=10;
+  ctx.fillText('⚡ ZONE '+mpBrief.n+' TWIST'+(trs.length>1?'S':''), W/2, y0+26*US);
+  ctx.shadowBlur=0;
+  ctx.font=`700 ${Math.round(11*US)}px system-ui,sans-serif`;
+  ctx.fillStyle='rgba(255,255,255,0.55)';
+  ctx.fillText('every level in this zone plays by these rules', W/2, y0+46*US);
+  trs.forEach((tr,i)=>{
+    const ry=y0+70*US+i*rowH+rowH/2, wig=Math.sin(t*2.4+i)*2;
+    ctx.font=`900 ${Math.round(14*US)}px system-ui,sans-serif`;
+    ctx.fillStyle='hsl(48,100%,68%)';
+    ctx.fillText(ZTRAITS[tr].name, W/2, ry-10*US+wig*0.4);
+    ctx.font=`700 ${Math.round(12*US)}px system-ui,sans-serif`;
+    ctx.fillStyle='rgba(255,255,255,0.88)';
+    ctx.fillText(ZTRAITS[tr].desc, W/2, ry+9*US);
+  });
+  ctx.font=`700 ${Math.round(10*US)}px system-ui,sans-serif`;
+  ctx.fillStyle='rgba(255,255,255,'+(0.35+Math.sin(t*4)*0.15)+')';
+  ctx.fillText('tap anywhere to close', W/2, y0+h-14*US);
+}
 /* the finish line: a checkered gate spanning the tunnel, riding the warp
    like every obstacle, with a FINISH banner floating in its mouth */
 function drawFinish(zz){
@@ -1267,12 +1302,16 @@ function mpWin(){          // every zone from the very first to the veiled ones
 }
 const mpZoneTop=(win,i)=>(win.length-1-i)*G.ZONE_H;
 let mpCam=0, mpSnapZi=0, mpDragging=false, mpY0=0, mpCam0=0, mpMoved=false, mpVel=0, mpLastY=0;
-let mpToast='', mpToastT=0, mpToastHue=140, mpTopRect=null;
+let mpToast='', mpToastT=0, mpToastHue=140, mpTopRect=null, mpBrief=null;
+function mpMaybeBrief(){
+  const tr=zoneTraits(ZP.cur);
+  if(tr.length && ZP.brief!==ZP.cur){ mpBrief={n:ZP.cur, traits:tr}; ZP.brief=ZP.cur; saveZP(); }
+}
 function mpSay(m,h){ mpToast=m; mpToastT=2.6; mpToastHue=h; }
 function mpMaxCam(win){ return Math.max(0,win.length*G.ZONE_H-H/mpS0()); }
 function mpZoneCam(win,zi){ return clamp(mpZoneTop(win,zi)-(H/mpS0()-G.ZONE_H)/2,0,mpMaxCam(win)); }
-function mpSnapCur(){ const win=mpWin(); mpSnapZi=win.findIndex(z=>z.vis==='current'); mpCam=mpZoneCam(win,mpSnapZi); }
-function mpDown(e){ mpDragging=true; mpMoved=false; mpY0=e.clientY; mpCam0=mpCam; mpLastY=e.clientY; mpVel=0; }
+function mpSnapCur(){ const win=mpWin(); mpSnapZi=win.findIndex(z=>z.vis==='current'); mpCam=mpZoneCam(win,mpSnapZi); mpMaybeBrief(); }
+function mpDown(e){ if(mpBrief){ mpBrief=null; return; } mpDragging=true; mpMoved=false; mpY0=e.clientY; mpCam0=mpCam; mpLastY=e.clientY; mpVel=0; }
 function mpMove(e){ if(!mpDragging) return;
   if(Math.abs(e.clientY-mpY0)>6) mpMoved=true;
   const win=mpWin();
@@ -1298,6 +1337,9 @@ function mpTap(ux,wy){
     if(hit(deepRect)){ state='title'; return; }
     if(hit(mpTopRect)){ mpSnapCur(); return; }
   }
+  if(z.vis==='next' && ly>G.ZONE_H-22 && zoneTraits(z.n).length){
+    mpBrief={n:z.n, traits:zoneTraits(z.n)}; return;      // peek the coming twists
+  }
   if(z.vis==='next'||z.vis==='hidden'){ mpSay('the tunnel ahead is still dark…',260); return; }
   const mz=mpMaze(z.n);
   const gateY=(mz.nodes[3][1]+mz.nodes[2][1])/2;
@@ -1314,6 +1356,9 @@ function mpTap(ux,wy){
       mpSay('locked — clear level '+z.n+'-'+ZP.lvl+' first',0);
       return;
     }
+  }
+  if(ly>G.ZONE_H-22 && zoneTraits(z.n).length){
+    mpBrief={n:z.n, traits:zoneTraits(z.n)}; return;      // ⚡ line explains itself
   }
   const TH3=zoneInfo(z.n).TH;                // empty-space taps reach the theme
   if(TH3.onTap) TH3.onTap(ux,ly,zoneInfo(z.n).P,t);
@@ -1466,6 +1511,7 @@ function mpDraw(){
   mpWavy('ZONE '+ZP.cur+' · '+cur.TH.name,G.UNIT_W/2,24,13.5);
   ctx.shadowBlur=0;
   ctx.restore();
+  mpDrawBrief();
   const US=uiS();
   deepRect=pillBtn(14+66*US, H-40*US, 132*US, 40*US, 'DEEP TUNNEL', 210, false);
   const curIdx=win.findIndex(z2=>z2.vis==='current');
