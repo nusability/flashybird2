@@ -79,7 +79,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.1 zones beta';
+const VERSION='Z0.2 zones beta';
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
 
@@ -724,6 +724,7 @@ function spawn(z){
   // you start to feel around 30k, flat from 60k on. A pure function of
   // course position, so the world stream stays deterministic per seed.
   const gen = clamp((wz-20000)/40000, 0, 1);
+  const nmkt = zTrait('market');
   const roll=wrng();
   if(roll<0.46){                                   // GATE — disc with a spinning hole
     const shrink = clamp(22 - dlvl()*0.9, 15, 22);
@@ -770,9 +771,9 @@ function spawn(z){
     rocks.forEach((r,i)=>{ r.ph=i*TAU/solid+wrand(-0.25,0.25); });
     for(let i=0;i<3;i++) rocks.push({x:wrand(24,52)*(wrng()<0.5?-1:1),y:wrand(-50,50),r:wrand(6,10),shape:rockShape(),ra:wrand(0,TAU),rs:wrand(-1.5,1.5),amp:wrand(4,8),ph:wrand(0,TAU),deco:true});
     ents.push({type:'rocks', z, w2, rocks, done:false});
-  } else if(roll<0.86-0.03*gen){                   // GEM — cedes ground to powerups late
+  } else if(roll<(nmkt?0.82:0.86-0.03*gen)){       // GEM — cedes ground to powerups late
     ents.push({type:'gem', z, x:0, y:wrand(-36,36), seed:wrand(0,9), done:false});
-  } else if(roll<0.92-0.04*gen){                   // GLOWBUG — evasive currency
+  } else if(roll<(nmkt?0.95:0.92-0.04*gen)){       // GLOWBUG — evasive currency
     ents.push({type:'bug', z, x:0, y:wrand(-30,30), seed:wrand(0,9), ev:0, done:false});
     if(levelQ&&lvlStat) lvlStat.bugN++;
   } else {                                         // POWER-UP — static weights + distance cooldowns
@@ -1025,6 +1026,41 @@ function zoneInfo(n){
 function hexA(hex,a){ const v=parseInt(hex.slice(1),16);
   return 'rgba('+(v>>16)+','+((v>>8)&255)+','+(v&255)+','+a+')'; }
 
+
+/* ---------------- zone traits: the variants ----------------
+   Deterministic per zone, budget grows slowly, banned pairs stay fair.
+   Traits carry late-game difficulty so the raw curve can stay gentle. */
+const ZTRAITS={
+  pulse:   {name:'PULSE',        desc:'the tunnel breathes'},
+  wobble:  {name:'WOBBLE',       desc:'the tunnel snakes hard'},
+  swarm:   {name:'SWARM',        desc:'obstacles hunt in packs'},
+  market:  {name:'NIGHT MARKET', desc:'glowbugs everywhere'},
+  sticky:  {name:'STICKY',       desc:'rocks creep toward you'},
+  skittish:{name:'SKITTISH',     desc:'loot flees — magnet beats it'},
+  wind:    {name:'CROSSWIND',    desc:'gusts shove the bird'},
+  blackout:{name:'BLACKOUT',     desc:'fly by headlight'},
+};
+const ZBAN=[['blackout','wind'],['blackout','swarm'],['blackout','sticky']];
+function zoneTraits(n){
+  const b = n<3?0 : n<12?1 : n<30?2 : 3;
+  const keys=Object.keys(ZTRAITS), r=mulberry32(hashStr('traits'+n));
+  const out=[]; let guard=0;
+  while(out.length<b && guard++<40){
+    const k=keys[(r()*keys.length)|0];
+    if(out.includes(k)) continue;
+    if(ZBAN.some(p=>(k===p[0]&&out.includes(p[1]))||(k===p[1]&&out.includes(p[0])))) continue;
+    out.push(k);
+  }
+  return out;
+}
+function zTrait(k){ return !!(levelQ&&levelQ.traits&&levelQ.traits.includes(k)); }
+/* BLACKOUT: the world only exists near the bird plane — a headlight vignette */
+function drawBlackout(){
+  const [bx,by]=proj(0,bird.y,BZ);
+  const g2=ctx.createRadialGradient(bx,by,95*SC,bx,by,360*SC);
+  g2.addColorStop(0,'rgba(2,0,8,0)'); g2.addColorStop(1,'rgba(2,0,8,0.9)');
+  ctx.fillStyle=g2; fillFrame();
+}
 /* progress: current zone, next level, star bits for the visible window */
 let ZP={cur:1,lvl:1,stars:{},total:0};
 try{ const z=JSON.parse(localStorage.getItem('fb_zp')||'null'); if(z&&z.cur) ZP=z; }catch(e){}
@@ -1039,13 +1075,15 @@ const zStars=n=>ZP.stars[n]||[0,0,0,0,0,0,0];
 function startLevel(n,k,x2){
   const idx=(n-1)*7+(k-1);
   levelQ={ n, k, x2:!!x2,
-    diff: Math.min(6, Math.floor(idx/6)+(x2?2:0)),
-    spd0: Math.min(380, 252+idx*2),
-    len:  Math.min(14000, 8500+idx*80),
+    diff: Math.min(6, Math.floor(idx/14)+(x2?2:0)),
+    spd0: Math.min(360, 250+idx*1.0),
+    len:  Math.min(12500, 8000+idx*50),
+    traits: zoneTraits(n),
     seed: 'zone'+n+'-'+k+(x2?'-x2':'') };
   if(prevSeed===null) prevSeed=seedStr;
   seedStr=levelQ.seed;
   reset();
+  levelQ.traits.forEach((tr,i)=>pop(ZTRAITS[tr].name+'!',CX,CY-150*SC-i*34*SC,(300+i*40)%360,1.25));
 }
 function levelDone(){
   score=Math.floor(scoreF);
@@ -1174,7 +1212,14 @@ function mpDress(n){
   const rng2=mulberry32(0xD1F7^n*104729); const drifters=[];
   for(let i=0;i<G.LIFE.drifters;i++)
     drifters.push({x:rng2()*G.UNIT_W,y0:rng2()*G.ZONE_H,s:12+rng2()*16,sp:10+rng2()*18,ph:rng2()*9});
-  return mpDressCache[n]={motifs,drifters};
+  let hero=null,bd=-1;                       // hero anchor: farthest spot from the maze
+  for(let gx=60;gx<=300;gx+=40) for(let gy=90;gy<=G.ZONE_H-90;gy+=60){
+    let md=1e9;
+    for(let i=0;i<mz.lut.length;i+=6){ const p=mz.lut[i];
+      md=Math.min(md,Math.hypot(p.x-gx,p.y-gy)); }
+    if(md>bd){ bd=md; hero=[gx,gy]; }
+  }
+  return mpDressCache[n]={motifs,drifters,hero};
 }
 const MSTARS=[]; { const rng=mulberry32(0x57A2);
   for(let i=0;i<110;i++) MSTARS.push({x:rng()*G.UNIT_W,y:rng()*4*G.ZONE_H,r:0.6+rng()*1.3,ph:rng()*9}); }
@@ -1236,7 +1281,11 @@ function mpTap(ux,wy){
       return;
     }
   }
+  const TH3=zoneInfo(z.n).TH;                // empty-space taps reach the theme
+  if(TH3.onTap) TH3.onTap(ux,ly,zoneInfo(z.n).P,t);
+  mpSparks.push({x:ux,wy,at:t}); if(mpSparks.length>10) mpSparks.shift();
 }
+const mpSparks=[];
 function mpStar(x,y,r,fill,rot){
   ctx.save(); ctx.translate(x,y); ctx.rotate(rot||0);
   ctx.beginPath();
@@ -1285,6 +1334,11 @@ function mpDraw(){
     if(top+G.ZONE_H<mpCam||top>mpCam+viewH) continue;
     const info=zoneInfo(z.n), TH=info.TH, P=info.P, dr=mpDress(z.n);
     ctx.save(); ctx.translate(0,top-mpCam);
+    if(TH.hero&&dr.hero&&z.vis!=='hidden'){
+      ctx.save(); ctx.translate(dr.hero[0],dr.hero[1]);
+      TH.hero(ctx,t,P,G.ZONE_H);
+      ctx.restore(); ctx.globalAlpha=1; ctx.globalCompositeOperation='source-over';
+    }
     for(const m of dr.motifs){
       ctx.save();
       ctx.translate(m.x+Math.sin(t*m.ws+m.wp)*m.wa, m.y+Math.cos(t*m.ws*0.8+m.wp)*m.wa*0.6);
@@ -1341,7 +1395,20 @@ function mpDraw(){
     const top=mpZoneTop(win,zi), z=win[zi];
     if(top+G.ZONE_H<mpCam||top>mpCam+viewH) continue;
     if(z.vis==='done'||z.vis==='current') mpZoneUI(win,zi);
+    if(z.vis!=='hidden'){
+      const TH2=zoneInfo(z.n).TH;
+      if(TH2.overlay){ ctx.save(); ctx.translate(0,top-mpCam);
+        TH2.overlay(ctx,t,zoneInfo(z.n).P,G.ZONE_H);
+        ctx.restore(); ctx.globalAlpha=1; ctx.globalCompositeOperation='source-over'; }
+    }
     mpVeil(win,zi);
+  }
+  for(const sp of mpSparks){                 // rainbow tap sparkles
+    const age=t-sp.at; if(age>0.8) continue;
+    for(let i=0;i<6;i++){ const a=i/6*TAU+sp.x;
+      const r=age*40;
+      ctx.fillStyle='hsla('+((sp.x*3+i*60)%360)+',100%,70%,'+(0.8*(1-age/0.8))+')';
+      ctx.beginPath(); ctx.arc(sp.x+Math.cos(a)*r,sp.wy-mpCam+Math.sin(a)*r,2,0,TAU); ctx.fill(); }
   }
   /* toast */
   if(mpToastT>0){
@@ -1440,6 +1507,12 @@ function mpZoneUI(win,zi){
   ctx.fillStyle=P.text; ctx.shadowColor='hsla('+P.hue+',100%,60%,1)'; ctx.shadowBlur=9;
   mpWavy(plate,cx,G.ZONE_H-24,G.TEXT.zone-2);
   ctx.shadowBlur=0;
+  const ztr=zoneTraits(z.n);
+  if(ztr.length){
+    ctx.font='800 9px system-ui,sans-serif'; ctx.textAlign='center';
+    ctx.fillStyle='hsla('+P.hue+',90%,75%,0.9)';
+    ctx.fillText('⚡ '+ztr.map(k=>ZTRAITS[k].name).join(' · '),cx,G.ZONE_H-8);
+  }
   ctx.restore();
 }
 function mpVeil(win,zi){
@@ -1458,7 +1531,8 @@ function mpVeil(win,zi){
     ctx.shadowBlur=0;
     ctx.font='700 10px system-ui,sans-serif'; ctx.fillStyle='rgba(255,255,255,0.42)';
     ctx.textAlign='center';
-    ctx.fillText('clear zone '+(z.n-1)+' to light the way',cx,G.ZONE_H-8);
+    const ztr2=zoneTraits(z.n);
+    ctx.fillText('clear zone '+(z.n-1)+' to light the way'+(ztr2.length?'  ·  ⚡ '+ztr2.map(k=>ZTRAITS[k].name).join(' · '):''),cx,G.ZONE_H-8);
   } else {
     const p=0.28+Math.sin(t*1.8)*0.1;
     ctx.font='900 40px system-ui,sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
@@ -1645,10 +1719,10 @@ function update(dt){
   // never exactly repeating (no RNG involved)
   rot = t*0.15 + 2.9*Math.sin(t*0.31) + 1.6*Math.sin(t*0.127+2);
   twist = 0.006*Math.sin(t*0.21) + 0.005*Math.sin(t*0.093+1.3);
-  wPh += (0.4+0.12*dlvl())*d;
+  wPh += (0.4+0.12*dlvl())*(zTrait('wobble')?1.7:1)*d;
   // steeper than the original 4.5/level: ~2x the wobble by dist 10k,
   // capped a little higher so deep runs get properly disorienting
-  wAmp = Math.min(44, dlvl()*9 + Math.min(6, t*0.1));
+  wAmp = Math.min(zTrait('wobble')?60:44, (dlvl()*9 + Math.min(6, t*0.1))*(zTrait('wobble')?1.6:1));
 
   shake *= Math.pow(0.001,dt); if(shake<0.3) shake=0;
   shX=rand(-1,1)*shake*SC; shY=rand(-1,1)*shake*SC;
@@ -1660,7 +1734,7 @@ function update(dt){
 
   const surfing = surfT>0;
   const advSpd = state==='play' ? spd*(surfing?Math.pow(1.9,surfStack):1) : 90;
-  const adv = advSpd*d;
+  const adv = advSpd*(state==='play'&&zTrait('pulse') ? 1+Math.sin(t*1.2)*0.3 : 1)*d;
 
   // stars always move
   for(const s of stars){ s.z-=adv*0.85; if(s.z<BZ+8){ s.z+=FAR-BZ; s.x=rand(-260,260); s.y=rand(-260,260);} }
@@ -1715,7 +1789,7 @@ function update(dt){
       bird.y += bird.vy*d;
       if(bird.y>=diveTo){ bird.y=diveTo; bird.vy=0; diveTo=null; }
     } else {
-      bird.vy = Math.min(MAXFALL, bird.vy + GRAV*d);
+      bird.vy = Math.min(MAXFALL, bird.vy + (GRAV + (zTrait('wind')?Math.sin(t*0.55)*85:0))*d);
       bird.y += bird.vy*d;
     }
     bird.wing = Math.max(0, bird.wing - d*5);
@@ -1731,11 +1805,16 @@ function update(dt){
     for(const e of ents){
       const pz=e.z; e.z-=adv;
       if(e.type==='rocks') for(const r of e.rocks) r.ra+=r.rs*d;
+      if(zTrait('sticky') && e.type==='rocks' && e.z<700)
+        for(const r of e.rocks) if(!r.deco) r.y += clamp(bird.y-r.y,-1,1)*7*d;
       if(e.type==='bug' && e.z<420){
         // glowbugs dodge away from the bird — unless the magnet beak pulls harder
         const cur=e.y+e.ev, mr=tier('magnet')*15;
         if(mr && Math.abs(cur-bird.y)<mr) e.ev += (bird.y-cur)*1.1*d;
         else e.ev = clamp(e.ev + Math.sign(cur-bird.y||1)*26*d, -18, 18);
+      }
+      else if(zTrait('skittish') && !tier('magnet') && (e.type==='gem'||e.type==='surf'||e.type==='star'||e.type==='mult') && e.z<320){
+        e.y = clamp(e.y + Math.sign(e.y-bird.y||1)*26*d, -42, 42);
       }
       else if(tier('magnet') && (e.type==='gem'||e.type==='surf'||e.type==='star'||e.type==='mult') && e.z<240){
         e.y = lerp(e.y, bird.y, 1-Math.pow(0.67,d*tier('magnet')));
@@ -1858,7 +1937,8 @@ function update(dt){
       const base = wrand(260,380);
       const wzg = dist + spawnHead;
       const spdEst = Math.min(TOPSPD, Math.sqrt(62500 + 1.68*wzg));
-      const gap = base*Math.max(1 - dlvl()*10/base, spdEst/360);
+      let gap = base*Math.max(1 - dlvl()*10/base, spdEst/360);
+      if(zTrait('swarm')) gap *= (wrng()<0.55?0.55:1.75);   // packs, then breathers
       spawnHead += gap; spawn(spawnHead);
     }
     score=Math.floor(scoreF);
@@ -2054,6 +2134,7 @@ function render(){
   }
   ctx.globalCompositeOperation='source-over';
 
+  if(state==='play' && zTrait('blackout')) drawBlackout();
   drawHUD(surfing,starred);
   if(state==='play' && hintT>0) drawHintCards();
 
@@ -2502,6 +2583,11 @@ function drawHUD(surfing,starred){
     const bw2=170*SC, by2=64*SC;
     ctx.fillStyle='rgba(255,255,255,0.18)'; ctx.fillRect(CX-bw2/2,by2,bw2,5*SC);
     ctx.fillStyle=`hsl(${hue},100%,65%)`; ctx.fillRect(CX-bw2/2,by2,bw2*clamp(dist/levelQ.len,0,1),5*SC);
+    if(levelQ.traits.length){
+      ctx.font=`800 ${Math.round(9.5*SC)}px system-ui,sans-serif`;
+      ctx.fillStyle='rgba(255,255,255,0.55)'; ctx.textAlign='center';
+      ctx.fillText(levelQ.traits.map(tr=>ZTRAITS[tr].name).join(' · '), CX, by2+13*SC);
+    }
   }
   // combo
   if(state==='play' && combo>=2){
