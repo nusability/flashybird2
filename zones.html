@@ -79,7 +79,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.2.3 zones beta';
+const VERSION='Z0.3 zones beta';
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
 
@@ -1065,8 +1065,7 @@ function drawBlackout(){
 let ZP={cur:1,lvl:1,stars:{},total:0};
 try{ const z=JSON.parse(localStorage.getItem('fb_zp')||'null'); if(z&&z.cur) ZP=z; }catch(e){}
 function saveZP(){
-  const keep={}; for(const k in ZP.stars) if(+k>=ZP.cur-1) keep[k]=ZP.stars[k];
-  ZP.stars=keep;
+  // full history is kept — the map scrolls back to zone 1 for star runs
   try{ localStorage.setItem('fb_zp',JSON.stringify(ZP)); }catch(e){}
 }
 const zStars=n=>ZP.stars[n]||[0,0,0,0,0,0,0];
@@ -1262,14 +1261,13 @@ const MSTARS=[]; { const rng=mulberry32(0x57A2);
 const MSPARKS=[]; { const rng=mulberry32(0x5EED);
   for(let i=0;i<G.LIFE.sparks;i++) MSPARKS.push({d:rng(),sp:130+rng()*110,ph:rng()*9}); }
 
-function mpWin(){          // the visible window of zones, low n first
-  const ns=[]; if(ZP.cur>1) ns.push(ZP.cur-1);
-  ns.push(ZP.cur, ZP.cur+1, ZP.cur+2);
+function mpWin(){          // every zone from the very first to the veiled ones
+  const ns=[]; for(let n=1;n<=ZP.cur+2;n++) ns.push(n);
   return ns.map(n=>({n, vis: n<ZP.cur?'done': n===ZP.cur?'current': n===ZP.cur+1?'next':'hidden'}));
 }
 const mpZoneTop=(win,i)=>(win.length-1-i)*G.ZONE_H;
 let mpCam=0, mpSnapZi=0, mpDragging=false, mpY0=0, mpCam0=0, mpMoved=false, mpVel=0, mpLastY=0;
-let mpToast='', mpToastT=0, mpToastHue=140;
+let mpToast='', mpToastT=0, mpToastHue=140, mpTopRect=null;
 function mpSay(m,h){ mpToast=m; mpToastT=2.6; mpToastHue=h; }
 function mpMaxCam(win){ return Math.max(0,win.length*G.ZONE_H-H/mpS0()); }
 function mpZoneCam(win,zi){ return clamp(mpZoneTop(win,zi)-(H/mpS0()-G.ZONE_H)/2,0,mpMaxCam(win)); }
@@ -1278,7 +1276,7 @@ function mpDown(e){ mpDragging=true; mpMoved=false; mpY0=e.clientY; mpCam0=mpCam
 function mpMove(e){ if(!mpDragging) return;
   if(Math.abs(e.clientY-mpY0)>6) mpMoved=true;
   const win=mpWin();
-  mpCam=clamp(mpCam0+(e.clientY-mpY0)/mpS0(),-40,mpMaxCam(win)+40);
+  mpCam=clamp(mpCam0-(e.clientY-mpY0)/mpS0(),-40,mpMaxCam(win)+40);
   mpVel=(e.clientY-mpLastY)/mpS0(); mpLastY=e.clientY; }
 function mpUp(e){
   if(!mpDragging) return; mpDragging=false;
@@ -1286,7 +1284,7 @@ function mpUp(e){
   if(!mpMoved){ mpTap(e.clientX/mpS0(), e.clientY/mpS0()+mpCam); return; }
   const center=mpCam+H/mpS0()/2;
   const zi=clamp(win.length-1-Math.floor(clamp(center,0,win.length*G.ZONE_H-1)/G.ZONE_H),0,win.length-1);
-  mpSnapZi = Math.abs(mpVel)>4 ? clamp(zi+(mpVel<0?1:-1),0,win.length-1) : zi;
+  mpSnapZi = Math.abs(mpVel)>4 ? clamp(zi+(mpVel<0?-1:1),0,win.length-1) : zi;
 }
 function mpCancel(){ mpDragging=false; }
 function mpWheel(e){ const win=mpWin(); mpSnapZi=clamp(mpSnapZi+(e.deltaY>0?-1:1),0,win.length-1); }
@@ -1294,11 +1292,11 @@ function mpTap(ux,wy){
   const win=mpWin();
   const zi=clamp(win.length-1-Math.floor(clamp(wy,0,win.length*G.ZONE_H-1)/G.ZONE_H),0,win.length-1);
   const z=win[zi], top=mpZoneTop(win,zi), ly=wy-top;
-  if(deepRect){ // the deep tunnel pill lives in screen space
+  { // screen-space pills first
     const sx=ux*mpS0(), sy=(wy-mpCam)*mpS0();
-    if(sx>=deepRect[0]&&sx<=deepRect[0]+deepRect[2]&&sy>=deepRect[1]&&sy<=deepRect[1]+deepRect[3]){
-      state='title'; return;
-    }
+    const hit=r=>r&&sx>=r[0]&&sx<=r[0]+r[2]&&sy>=r[1]&&sy<=r[1]+r[3];
+    if(hit(deepRect)){ state='title'; return; }
+    if(hit(mpTopRect)){ mpSnapCur(); return; }
   }
   if(z.vis==='next'||z.vis==='hidden'){ mpSay('the tunnel ahead is still dark…',260); return; }
   const mz=mpMaze(z.n);
@@ -1348,9 +1346,10 @@ function mpDraw(){
   ctx.fillStyle='#05010f'; ctx.fillRect(0,0,W,H);
   ctx.save(); ctx.scale(mpS,mpS);
   const viewH=H/mpS;
+  const starP=4*G.ZONE_H;
   for(const st of MSTARS){
-    const sy=st.y-mpCam*0.82;
-    if(sy<-10||sy>viewH+10) continue;
+    const sy=(((st.y-mpCam*0.82)%starP)+starP)%starP;
+    if(sy>viewH+10) continue;
     ctx.fillStyle='rgba(255,255,255,'+(0.25+Math.sin(t*2+st.ph)*0.2)+')';
     ctx.beginPath(); ctx.arc(st.x,sy,st.r,0,TAU); ctx.fill();
   }
@@ -1469,6 +1468,10 @@ function mpDraw(){
   ctx.restore();
   const US=uiS();
   deepRect=pillBtn(14+66*US, H-40*US, 132*US, 40*US, 'DEEP TUNNEL', 210, false);
+  const curIdx=win.findIndex(z2=>z2.vis==='current');
+  if(mpSnapZi!==curIdx || Math.abs(mpCam-mpZoneCam(win,curIdx))>G.ZONE_H*0.6){
+    mpTopRect=pillBtn(W-14-72*US, H-40*US, 144*US, 40*US, '▲ CURRENT ZONE', 48, false);
+  } else mpTopRect=null;
   ctx.textAlign='right'; ctx.textBaseline='middle';
   ctx.font='700 10px system-ui,sans-serif'; ctx.fillStyle='rgba(255,255,255,0.45)';
   ctx.fillText('★ '+ZP.total+'   ·   swipe for zones · tap a level',W-12,H-20);
@@ -1523,11 +1526,26 @@ function mpZoneUI(win,zi){
     if(done){ for(let s2=0;s2<3;s2++)
       mpStar((s2-1)*11,-r-10+(s2===1?-2:0),G.NODE.starR,
         s2<st[k-1]?P.nodeDone:'rgba(255,255,255,0.14)',(s2-1)*0.2); }
+    if(isCur){                       // radiating beacon rings
+      for(let rp=0;rp<2;rp++){
+        const ph=((t*0.9+rp*0.5)%1);
+        ctx.strokeStyle='hsla(48,100%,65%,'+(0.55*(1-ph))+')';
+        ctx.lineWidth=2.5;
+        ctx.beginPath(); ctx.arc(0,0,r*0.8+ph*30,0,TAU); ctx.stroke();
+      }
+    }
     ctx.restore();
     if(z.vis==='current'&&ZP.lvl===k){
       ctx.save(); ctx.translate(x-36,y-22+FX.bob(t,3,2.5));
       drawModel(skin, 8, null, 45, 100, 58, 0.3+Math.sin(t*8)*0.3);
       ctx.restore();
+      const ay=y-r-22-Math.abs(Math.sin(t*3))*7;   // bouncing PLAY arrow
+      ctx.save();
+      ctx.fillStyle='#ffd977'; ctx.shadowColor='#ffd977'; ctx.shadowBlur=10;
+      ctx.beginPath(); ctx.moveTo(x-8,ay-8); ctx.lineTo(x+8,ay-8); ctx.lineTo(x,ay+4); ctx.closePath(); ctx.fill();
+      ctx.font='900 11px system-ui,sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText('PLAY',x,ay-17);
+      ctx.shadowBlur=0; ctx.restore();
     }
   }
   const mh=(t*130)%360;                        // zone-mouth gate ring
