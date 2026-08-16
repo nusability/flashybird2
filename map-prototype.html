@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#05010f">
-<title>FLASHY BIRD — zone map prototype</title>
+<title>FLASHY BIRD — zone map prototype v0.2</title>
 <style>
   html,body{margin:0;padding:0;background:#05010f;overflow:hidden;height:100%;touch-action:none;-webkit-user-select:none;user-select:none;overscroll-behavior:none}
   canvas{display:block;position:fixed;inset:0;cursor:grab;touch-action:none}
@@ -14,457 +14,779 @@
 <canvas id="c"></canvas>
 <script>
 'use strict';
-/* ============ FLASHY BIRD — ZONE MAP PROTOTYPE v0.1 ============
-   Standalone sketch of the level-map view: a top-down tunnel winding
-   through themed zones, 7 level nodes each, a x2 skip gate, and the
-   only-current-and-previous-visible rule. Nothing here touches the game.
-   =============================================================== */
+/* ========== FLASHY BIRD — ZONE MAP PROTOTYPE v0.2 ==========
+   The map is the game's hypno-tunnel seen from outside: one continuous
+   ribbon of hue-cycling neon rings winding up through themed zones that
+   blend into each other. Everything alive, everything animated.
+   Standalone file — the game is untouched.
+   =========================================================== */
+const TAU=Math.PI*2;
 
-/* ---------------- DESIGN GUIDELINES ----------------
-   This block is the contract a theme subagent works inside. A theme pack
-   may ONLY contribute: palettes (all color tokens below), motif drawing
-   functions, and name fragments. It may NOT change geometry, stroke
-   widths, node metrics, or port positions — that is what makes 1000
-   zones feel like one game. */
+/* ---------------- DESIGN GUIDELINES (the theme-pack contract) ----------------
+   Fixed by the framework, untouchable by theme agents:
+     geometry (ports, serpentine, node anchors), TUBE spec, BLEND band,
+     node metrics, text sizes, life budgets.
+   A theme pack contributes ONLY:
+     palettes (all tokens below, >=2 for permutation; bg must stay dark:
+     L<30%, and ring hue must contrast bg), motif(), nodeBody(), critters,
+     drifter style, name fragments.
+   HARD RULE: every drawn thing must idle-animate. Static art is rejected. */
 const G = {
-  UNIT_W: 390,            // design-space width; canvas scales to fit
-  ZONE_H: 1300,           // one zone's height in design units
-  PORT_X: 0.5,            // the tunnel enters & exits EVERY zone at center-x
-  AMP: 105,               // serpentine swing of the path around center
-  PATH: { glowW: 30, edgeW: 22, innerW: 14, dashW: 2, dash: [10,12] },
-  NODE: { r: 23, ringW: 3.5, starR: 5.5, labelDy: 40 },
-  SKIP: { r: 19, lane: 354 },       // the x2 shortcut hugs the right edge
-  MOTIF: { strokeMin: 2, strokeMax: 4, sizeMin: 10, sizeMax: 54,
-           margin: 16, clearance: 78, perZone: 26 },
-  TEXT: { zone: 17, node: 12.5, hint: 11 },
+  UNIT_W:390, ZONE_H:1300, PORT_X:0.5, AMP:105,
+  TUBE:{ ringGap:30, rx:24, ry:8.5, beamW:52, pulseNear:130 },
+  BLEND:230,                       // gradient band where zones melt together
+  NODE:{ r:23, ringW:3, starR:5.5 },
+  SKIP:{ r:20, lane:352 },
+  MOTIF:{ perZone:16, margin:18, clearance:82, sizeMin:14, sizeMax:58 },
+  LIFE:{ drifters:11, sparks:26, critters:3 },
+  TEXT:{ zone:19, node:12.5, hint:11 },
 };
 
-/* ---------------- THEME PACKS ----------------
-   Each pack: name, 2+ palettes (permutable — the zone hash picks one),
-   and a motif() that draws one decoration at origin, size s, variant v.
-   Palettes carry every color token the renderer uses; nothing hardcoded. */
-const THEMES = {
-  sky: {
-    name: 'CALM SKY OF A BIRD PLANET',
-    palettes: [
-      { bg:['#0b2547','#1d4f86'], glow:'#7fd0ff', edge:'#0a1b33', inner:'#123a63',
-        dash:'rgba(190,230,255,0.5)', node:'#9fdcff', nodeDone:'#57d9a3',
-        lock:'#3f6288', accent:'#ffd977', text:'#eaf6ff' },
-      { bg:['#2a1136','#83372e'], glow:'#ffb36b', edge:'#220d20', inner:'#5c2531',
-        dash:'rgba(255,214,170,0.5)', node:'#ffcf9f', nodeDone:'#ffd977',
-        lock:'#6b4550', accent:'#ff8fb0', text:'#ffeede' },
-    ],
-    motif(ctx,s,v,t,P){
-      if(v<0.55){ // puffy cloud
-        ctx.fillStyle='rgba(255,255,255,0.16)';
+/* ---------------- tiny utils ---------------- */
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let x=Math.imul(a^a>>>15,1|a);x=x+Math.imul(x^x>>>7,61|x)^x;return((x^x>>>14)>>>0)/4294967296}}
+const clamp=(v,a,b)=>v<a?a:v>b?b:v;
+const lerp=(a,b,f)=>a+(b-a)*f;
+function hueLerp(a,b,f){ let d=((b-a)%360+540)%360-180; return (a+d*f+360)%360; }
+/* eyes that blink: 0 open, 1 closed */
+function blink(t,seed){ const p=(t+seed*13.7)%(2.8+(seed%1)*2.6); return p<0.14?1:0; }
+
+/* ---------------- THEME PACKS ---------------- */
+const THEMES={
+sky:{
+  name:'CALM SKY OF A BIRD PLANET',
+  palettes:[
+    { hue:205, bg:['#0a2c55','#123f74'], node:'#9fdcff', nodeDone:'#ffd977',
+      lock:'#41648c', accent:'#ffd977', text:'#eaf6ff', veil:'#061426' },
+    { hue:24,  bg:['#331036','#6e2c2c'], node:'#ffcf9f', nodeDone:'#ffd977',
+      lock:'#6b4550', accent:'#ff8fb0', text:'#ffeede', veil:'#1c0a1c' },
+  ],
+  motif(ctx,m,t,P){ // clouds with sleepy faces · smiling sun
+    const s=m.s;
+    if(m.v<0.62){
+      const dx=Math.sin(t*0.24+m.v*9)*16;              // clouds drift
+      ctx.save(); ctx.translate(dx,Math.sin(t*0.9+m.v*7)*3);
+      ctx.fillStyle='rgba(255,255,255,0.15)';
+      ctx.beginPath();
+      ctx.arc(-s*0.42,0,s*0.30,0,TAU); ctx.arc(0,-s*0.16,s*0.40,0,TAU);
+      ctx.arc(s*0.4,0,s*0.28,0,TAU); ctx.arc(0,s*0.12,s*0.34,0,TAU); ctx.fill();
+      const bl=blink(t,m.v);                            // sleepy face
+      ctx.strokeStyle='rgba(255,255,255,0.55)'; ctx.lineWidth=2; ctx.lineCap='round';
+      for(const e of [-1,1]){
         ctx.beginPath();
-        ctx.arc(-s*0.4,0,s*0.32,0,7); ctx.arc(0,-s*0.14,s*0.42,0,7); ctx.arc(s*0.42,0,s*0.3,0,7);
-        ctx.arc(0,s*0.12,s*0.36,0,7); ctx.fill();
-      } else if(v<0.85){ // distant gliding bird
-        ctx.strokeStyle=P.text; ctx.globalAlpha=0.55; ctx.lineWidth=2.4; ctx.lineCap='round';
-        const f=Math.sin(t*3+s)*0.25;
-        ctx.beginPath(); ctx.moveTo(-s*0.4,0); ctx.quadraticCurveTo(-s*0.18,-s*(0.28+f),0,0);
-        ctx.quadraticCurveTo(s*0.18,-s*(0.28-f),s*0.4,0); ctx.stroke();
-      } else { // little sun
-        ctx.fillStyle=P.accent; ctx.globalAlpha=0.9;
-        ctx.beginPath(); ctx.arc(0,0,s*0.3,0,7); ctx.fill();
-        ctx.strokeStyle=P.accent; ctx.lineWidth=2;
-        for(let i=0;i<8;i++){ const a=i/8*Math.PI*2+t*0.2;
-          ctx.beginPath(); ctx.moveTo(Math.cos(a)*s*0.42,Math.sin(a)*s*0.42);
-          ctx.lineTo(Math.cos(a)*s*0.55,Math.sin(a)*s*0.55); ctx.stroke(); }
+        if(bl||m.v<0.2) { ctx.moveTo(e*s*0.13-s*0.05,-s*0.05); ctx.lineTo(e*s*0.13+s*0.05,-s*0.05); }
+        else ctx.arc(e*s*0.13,-s*0.07,s*0.05,0.2,Math.PI-0.2);
+        ctx.stroke();
       }
-    },
+      ctx.beginPath(); ctx.arc(0,s*0.07,s*0.06,0.3,Math.PI-0.3); ctx.stroke();
+      ctx.restore();
+    } else {
+      ctx.save(); ctx.rotate(t*0.15);                   // lazy smiling sun
+      ctx.fillStyle=P.accent; ctx.globalAlpha=0.9;
+      ctx.beginPath(); ctx.arc(0,0,s*0.28,0,TAU); ctx.fill();
+      ctx.strokeStyle=P.accent; ctx.lineWidth=2.6; ctx.lineCap='round';
+      for(let i=0;i<9;i++){ const a=i/9*TAU, w=1+Math.sin(t*3+i)*0.18;
+        ctx.beginPath(); ctx.moveTo(Math.cos(a)*s*0.38,Math.sin(a)*s*0.38);
+        ctx.lineTo(Math.cos(a)*s*0.52*w,Math.sin(a)*s*0.52*w); ctx.stroke(); }
+      ctx.restore();
+      ctx.fillStyle='#5b3b10';
+      for(const e of [-1,1]){ ctx.beginPath(); ctx.arc(e*s*0.1,-s*0.05,s*0.035,0,TAU); ctx.fill(); }
+      ctx.strokeStyle='#5b3b10'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.arc(0,s*0.04,s*0.09,0.3,Math.PI-0.3); ctx.stroke();
+    }
   },
-  jungle: {
-    name: 'PSYCHEDELIC JUNGLE',
-    palettes: [
-      { bg:['#04170d','#0e3b17'], glow:'#7dff6e', edge:'#03110a', inner:'#14431f',
-        dash:'rgba(210,255,160,0.5)', node:'#c0ff6e', nodeDone:'#ffd977',
-        lock:'#2f5c3a', accent:'#ff5fd0', text:'#eaffe0' },
-      { bg:['#1c0530','#43104f'], glow:'#e86bff', edge:'#14031f', inner:'#3a1247',
-        dash:'rgba(255,190,255,0.5)', node:'#ff9ff5', nodeDone:'#7dff6e',
-        lock:'#5b3a68', accent:'#7dffc9', text:'#ffe8ff' },
-    ],
-    motif(ctx,s,v,t,P){
-      if(v<0.5){ // big swaying leaf
-        ctx.save(); ctx.rotate(Math.sin(t*1.4+s)*0.1+(v*4));
-        ctx.fillStyle=P.glow; ctx.globalAlpha=0.30;
-        ctx.beginPath(); ctx.moveTo(0,0);
-        ctx.quadraticCurveTo(s*0.55,-s*0.5,0,-s);
-        ctx.quadraticCurveTo(-s*0.55,-s*0.5,0,0); ctx.fill();
-        ctx.strokeStyle=P.glow; ctx.globalAlpha=0.5; ctx.lineWidth=2;
-        ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(0,-s); ctx.stroke(); ctx.restore();
-      } else if(v<0.8){ // spiral vine
-        ctx.strokeStyle=P.accent; ctx.globalAlpha=0.55; ctx.lineWidth=2.6; ctx.lineCap='round';
+  nodeBody(ctx,r,t,P,st){ // a puffball cloud medallion
+    ctx.fillStyle=st.done?'rgba(255,217,119,0.25)':'rgba(255,255,255,0.18)';
+    for(let i=0;i<7;i++){ const a=i/7*TAU+t*0.3;
+      ctx.beginPath(); ctx.arc(Math.cos(a)*r*0.62,Math.sin(a)*r*0.62,r*0.5+Math.sin(t*2+i)*1.5,0,TAU); ctx.fill(); }
+  },
+  critter(ctx,i,t,P,zH){ // little birds commuting across the sky
+    const sp=26+i*9, y0=170+i*(zH-340)/3;
+    const x=((t*sp+i*140)%(G.UNIT_W+120))-60;
+    const y=y0+Math.sin(t*1.4+i*2)*20, f=Math.sin(t*9+i)*0.5;
+    ctx.save(); ctx.translate(x,y); if(i%2)ctx.scale(-1,1);
+    ctx.fillStyle=P.text; ctx.globalAlpha=0.85;
+    ctx.beginPath(); ctx.ellipse(0,0,7,4.5,0,0,TAU); ctx.fill();
+    ctx.beginPath(); ctx.arc(6,-2,3,0,TAU); ctx.fill();
+    ctx.fillStyle=P.accent;
+    ctx.beginPath(); ctx.moveTo(8.5,-2.5); ctx.lineTo(12,-1.5); ctx.lineTo(8.5,-0.5); ctx.fill();
+    ctx.fillStyle=P.text;
+    ctx.beginPath(); ctx.ellipse(-1,-3,6,2.6,-0.7-f,0,TAU); ctx.fill();
+    ctx.restore(); ctx.globalAlpha=1;
+  },
+  drifter(ctx,d,t,P){ // falling feathers, rocking like leaves
+    ctx.save(); ctx.rotate(Math.sin(t*1.1+d.ph)*0.7);
+    ctx.strokeStyle='rgba(255,255,255,0.5)'; ctx.lineWidth=1.6; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(-d.s*0.5,0); ctx.quadraticCurveTo(0,-d.s*0.55,d.s*0.5,0); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-d.s*0.34,0); ctx.lineTo(d.s*0.4,-d.s*0.1); ctx.stroke();
+    ctx.restore();
+  },
+},
+jungle:{
+  name:'PSYCHEDELIC JUNGLE',
+  palettes:[
+    { hue:118, bg:['#03170c','#0d3b18'], node:'#c0ff6e', nodeDone:'#ffd977',
+      lock:'#2f5c3a', accent:'#ff5fd0', text:'#eaffe0', veil:'#031208' },
+    { hue:300, bg:['#20052e','#45104e'], node:'#ff9ff5', nodeDone:'#7dff6e',
+      lock:'#5b3a68', accent:'#7dffc9', text:'#ffe8ff', veil:'#150320' },
+  ],
+  motif(ctx,m,t,P){
+    const s=m.s;
+    if(m.v<0.4){                                        // breathing mega-leaf
+      ctx.save(); ctx.rotate(m.v*16+Math.sin(t*1.2+m.v*9)*0.14);
+      const grow=1+Math.sin(t*1.6+m.v*5)*0.05;
+      ctx.scale(grow,grow);
+      const lg=ctx.createLinearGradient(0,0,0,-s);
+      lg.addColorStop(0,'rgba(70,220,110,0.34)'); lg.addColorStop(1,'rgba(255,95,208,0.30)');
+      ctx.fillStyle=lg;
+      ctx.beginPath(); ctx.moveTo(0,0);
+      ctx.quadraticCurveTo(s*0.6,-s*0.5,0,-s);
+      ctx.quadraticCurveTo(-s*0.6,-s*0.5,0,0); ctx.fill();
+      ctx.strokeStyle='rgba(160,255,160,0.55)'; ctx.lineWidth=1.8;
+      ctx.beginPath(); ctx.moveTo(0,0); ctx.quadraticCurveTo(s*0.06,-s*0.5,0,-s); ctx.stroke();
+      for(let i=1;i<5;i++){ ctx.beginPath(); ctx.moveTo(0,-s*i/5);
+        ctx.quadraticCurveTo(s*0.2,-s*(i/5+0.06),s*0.34*(1-i/6),-s*(i/5+0.14)); ctx.stroke(); }
+      ctx.restore();
+    } else if(m.v<0.7){                                  // hypno-swirl
+      ctx.save(); ctx.rotate(t*(m.v>0.55?0.5:-0.4));
+      ctx.lineWidth=2.4; ctx.lineCap='round';
+      for(let arm=0;arm<2;arm++){
+        ctx.strokeStyle=arm?P.accent:'rgba(125,255,110,0.8)'; ctx.globalAlpha=0.6;
         ctx.beginPath();
-        for(let i=0;i<=30;i++){ const a=i/30*4.7+t*0.3, r=s*0.1+i/30*s*0.42;
+        for(let i=0;i<=26;i++){ const a=i/26*4.4+arm*Math.PI, r=s*0.08+i/26*s*0.5;
           const x=Math.cos(a)*r, y=Math.sin(a)*r; i?ctx.lineTo(x,y):ctx.moveTo(x,y); }
         ctx.stroke();
-      } else { // eye flower — the psychedelic part
-        ctx.fillStyle=P.accent; ctx.globalAlpha=0.85;
-        for(let i=0;i<6;i++){ const a=i/6*Math.PI*2+t*0.35;
-          ctx.beginPath(); ctx.ellipse(Math.cos(a)*s*0.3,Math.sin(a)*s*0.3,s*0.24,s*0.12,a,0,7); ctx.fill(); }
-        ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(0,0,s*0.17,0,7); ctx.fill();
-        ctx.fillStyle='#111'; ctx.beginPath();
-        ctx.arc(Math.sin(t*1.2)*s*0.05,0,s*0.08,0,7); ctx.fill();
       }
-    },
+      ctx.restore(); ctx.globalAlpha=1;
+    } else {                                             // blinking eye-flower
+      ctx.save(); ctx.rotate(Math.sin(t*0.8+m.v*11)*0.1);
+      for(let i=0;i<7;i++){ const a=i/7*TAU+t*0.35;
+        ctx.fillStyle=i%2?P.accent:'rgba(125,255,110,0.9)'; ctx.globalAlpha=0.8;
+        ctx.beginPath(); ctx.ellipse(Math.cos(a)*s*0.3,Math.sin(a)*s*0.3,s*0.26,s*0.11,a,0,TAU); ctx.fill(); }
+      ctx.globalAlpha=1;
+      const bl=blink(t,m.v);
+      ctx.fillStyle='#fff'; ctx.beginPath();
+      ctx.ellipse(0,0,s*0.18,s*0.18*(1-bl*0.92),0,0,TAU); ctx.fill();
+      if(!bl){ ctx.fillStyle='#12220f'; ctx.beginPath();
+        ctx.arc(Math.sin(t*0.9+m.v)*s*0.06,Math.cos(t*0.7)*s*0.03,s*0.085,0,TAU); ctx.fill();
+        ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(s*0.04,-s*0.05,s*0.03,0,TAU); ctx.fill(); }
+      ctx.restore();
+    }
   },
-  fishbirds: {
-    name: 'FLYING FISH & DIVING BIRDS',
-    palettes: [
-      { bg:['#02182b','#065069'], glow:'#4fe8d9', edge:'#021320', inner:'#0a4152',
-        dash:'rgba(170,255,240,0.5)', node:'#7ff2e2', nodeDone:'#ffd977',
-        lock:'#2b5f6b', accent:'#ffa64f', text:'#e2fffa' },
-      { bg:['#0a0a33','#232b7a'], glow:'#8fa1ff', edge:'#070726', inner:'#1d2361',
-        dash:'rgba(200,210,255,0.5)', node:'#aab7ff', nodeDone:'#4fe8d9',
-        lock:'#3c4380', accent:'#ff7fa8', text:'#e8ecff' },
-    ],
-    motif(ctx,s,v,t,P){
-      if(v<0.45){ // leaping fish arc
-        ctx.save(); ctx.rotate(-0.5+Math.sin(t*2+s)*0.12);
-        ctx.fillStyle=P.accent; ctx.globalAlpha=0.8;
-        ctx.beginPath(); ctx.ellipse(0,0,s*0.4,s*0.16,0,0,7); ctx.fill();
-        ctx.beginPath(); ctx.moveTo(s*0.36,0); ctx.lineTo(s*0.6,-s*0.16); ctx.lineTo(s*0.6,s*0.16); ctx.closePath(); ctx.fill();
-        ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(-s*0.26,-s*0.03,s*0.045,0,7); ctx.fill();
-        ctx.restore();
-      } else if(v<0.75){ // bubbles
-        ctx.strokeStyle=P.glow; ctx.globalAlpha=0.5; ctx.lineWidth=2;
-        const b=(t*14+s*7)%40;
-        ctx.beginPath(); ctx.arc(0,-b*0.4,s*0.13,0,7); ctx.stroke();
-        ctx.beginPath(); ctx.arc(s*0.2,s*0.3-b*0.3,s*0.09,0,7); ctx.stroke();
-        ctx.beginPath(); ctx.arc(-s*0.22,s*0.1-b*0.35,s*0.07,0,7); ctx.stroke();
-      } else { // diving bird, beak-first
-        ctx.save(); ctx.rotate(2.2+Math.sin(t*1.5+s)*0.08);
-        ctx.fillStyle=P.text; ctx.globalAlpha=0.7;
-        ctx.beginPath(); ctx.ellipse(0,0,s*0.34,s*0.13,0,0,7); ctx.fill();
-        ctx.beginPath(); ctx.moveTo(s*0.3,0); ctx.lineTo(s*0.52,0); ctx.lineTo(s*0.3,s*0.08); ctx.closePath(); ctx.fill();
-        const f=Math.sin(t*9+s)*0.4;
-        ctx.beginPath(); ctx.ellipse(-s*0.05,-s*0.1,s*0.2,s*0.08,-0.7-f,0,7); ctx.fill();
-        ctx.restore();
+  nodeBody(ctx,r,t,P,st){ // flower medallion, petals slowly wheeling
+    for(let i=0;i<8;i++){ const a=i/8*TAU+t*0.5;
+      ctx.fillStyle=st.done?'rgba(255,217,119,0.45)':i%2?'rgba(255,95,208,0.5)':'rgba(192,255,110,0.5)';
+      ctx.beginPath(); ctx.ellipse(Math.cos(a)*r*0.75,Math.sin(a)*r*0.75,r*0.42,r*0.2,a,0,TAU); ctx.fill(); }
+  },
+  critter(ctx,i,t,P,zH){ // glowbugs — the game's currency, living here
+    const cx=60+i*(G.UNIT_W-120)/2, cy=240+i*(zH-480)/2;
+    const x=cx+Math.sin(t*0.55+i*2.4)*70+Math.sin(t*1.7+i)*16;
+    const y=cy+Math.cos(t*0.45+i*1.8)*90+Math.sin(t*2.2+i)*10;
+    const wing=Math.sin(t*30+i)*0.5;
+    ctx.save(); ctx.translate(x,y); ctx.globalCompositeOperation='lighter';
+    ctx.fillStyle='rgba(150,255,110,0.25)';
+    ctx.beginPath(); ctx.arc(0,0,10,0,TAU); ctx.fill();
+    ctx.fillStyle='hsl(95,100%,72%)';
+    ctx.beginPath(); ctx.arc(0,0,3.6,0,TAU); ctx.fill();
+    ctx.fillStyle='rgba(255,255,255,0.8)';
+    ctx.beginPath(); ctx.ellipse(-3.5,-2.5,4,1.8,-0.6-wing,0,TAU); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(3.5,-2.5,4,1.8,0.6+wing,0,TAU); ctx.fill();
+    ctx.restore();
+  },
+  drifter(ctx,d,t,P){ // glowing spores
+    ctx.globalCompositeOperation='lighter';
+    ctx.fillStyle=d.ph%1<0.5?'rgba(150,255,120,0.5)':'rgba(255,120,220,0.45)';
+    ctx.beginPath(); ctx.arc(0,0,d.s*0.12+Math.sin(t*3+d.ph)*0.8,0,TAU); ctx.fill();
+    ctx.globalCompositeOperation='source-over';
+  },
+},
+fishbirds:{
+  name:'FLYING FISH & DIVING BIRDS',
+  palettes:[
+    { hue:172, bg:['#02182b','#07536b'], node:'#7ff2e2', nodeDone:'#ffd977',
+      lock:'#2b5f6b', accent:'#ffa64f', text:'#e2fffa', veil:'#021019' },
+    { hue:225, bg:['#0a0a33','#20296e'], node:'#aab7ff', nodeDone:'#4fe8d9',
+      lock:'#3c4380', accent:'#ff7fa8', text:'#e8ecff', veil:'#06061f' },
+  ],
+  motif(ctx,m,t,P){
+    const s=m.s;
+    if(m.v<0.45){                                       // swaying kelp
+      ctx.strokeStyle='rgba(90,220,190,0.5)'; ctx.lineWidth=3; ctx.lineCap='round';
+      for(let b=0;b<3;b++){
+        ctx.beginPath(); ctx.moveTo((b-1)*s*0.16,s*0.5);
+        for(let i=1;i<=6;i++){ const yy=s*0.5-i*s*0.18;
+          ctx.quadraticCurveTo((b-1)*s*0.16+Math.sin(t*1.8+b+i*0.8)*s*0.12,yy+s*0.09,
+                               (b-1)*s*0.16+Math.sin(t*1.8+b+(i+0.5)*0.8)*s*0.10,yy); }
+        ctx.stroke();
       }
-    },
+    } else if(m.v<0.75){                                // shimmering current lines
+      ctx.strokeStyle='rgba(160,255,240,0.35)'; ctx.lineWidth=2; ctx.lineCap='round';
+      for(let i=0;i<3;i++){ const yy=(i-1)*s*0.22, ph=t*2+m.v*10+i;
+        ctx.beginPath();
+        for(let k=0;k<=16;k++){ const x=-s*0.5+k/16*s, y=yy+Math.sin(ph+k*0.7)*s*0.07;
+          k?ctx.lineTo(x,y):ctx.moveTo(x,y); }
+        ctx.stroke(); }
+    } else {                                            // curious jellyfish-star
+      ctx.save(); ctx.translate(0,Math.sin(t*1.3+m.v*8)*6);
+      ctx.fillStyle='rgba(127,242,226,0.35)';
+      ctx.beginPath(); ctx.arc(0,0,s*0.26,Math.PI,0); ctx.fill();
+      ctx.strokeStyle='rgba(127,242,226,0.5)'; ctx.lineWidth=2; ctx.lineCap='round';
+      for(let i=0;i<5;i++){ const x0=-s*0.2+i*s*0.1;
+        ctx.beginPath(); ctx.moveTo(x0,0);
+        ctx.quadraticCurveTo(x0+Math.sin(t*3+i)*s*0.08,s*0.22,x0+Math.sin(t*3+i+1)*s*0.1,s*0.4); ctx.stroke(); }
+      const bl=blink(t,m.v);
+      ctx.fillStyle='#04222b';
+      for(const e of [-1,1]){ ctx.beginPath();
+        ctx.ellipse(e*s*0.09,-s*0.06,s*0.035,s*0.035*(1-bl*0.9),0,0,TAU); ctx.fill(); }
+      ctx.restore();
+    }
   },
-  boneyard: {
-    name: 'SWARM OF BIRD SKELETONS',
-    palettes: [
-      { bg:['#120b1c','#2b1e3d'], glow:'#cfc4ff', edge:'#0c0714', inner:'#241a33',
-        dash:'rgba(230,220,255,0.45)', node:'#efe8ff', nodeDone:'#8effc2',
-        lock:'#4a3d63', accent:'#f4f0e0', text:'#f1ecff' },
-      { bg:['#1a0c0c','#3d1c14'], glow:'#ffc9a1', edge:'#140808', inner:'#331a12',
-        dash:'rgba(255,225,200,0.45)', node:'#ffe9d4', nodeDone:'#ffd977',
-        lock:'#5f4234', accent:'#fff3dd', text:'#ffefe2' },
-    ],
-    motif(ctx,s,v,t,P){
-      ctx.globalAlpha=0.75;
-      if(v<0.5){ // little bird skull with beak
-        ctx.fillStyle=P.accent;
-        ctx.beginPath(); ctx.arc(0,0,s*0.26,0,7); ctx.fill();
-        ctx.beginPath(); ctx.moveTo(s*0.2,s*0.05); ctx.lineTo(s*0.48,s*0.14); ctx.lineTo(s*0.16,s*0.2); ctx.closePath(); ctx.fill();
-        ctx.fillStyle=P.bg[0];
-        ctx.beginPath(); ctx.arc(-s*0.06,-s*0.05,s*0.08,0,7); ctx.fill();
-        ctx.beginPath(); ctx.arc(s*0.12,-s*0.02,s*0.06,0,7); ctx.fill();
-      } else if(v<0.8){ // crossed wing-bones
-        ctx.strokeStyle=P.accent; ctx.lineWidth=3; ctx.lineCap='round';
-        ctx.save(); ctx.rotate(v*6+Math.sin(t+s)*0.06);
-        for(const a of [0.6,-0.6]){ ctx.save(); ctx.rotate(a);
-          ctx.beginPath(); ctx.moveTo(-s*0.35,0); ctx.lineTo(s*0.35,0); ctx.stroke();
-          for(const e of [-1,1]){ ctx.beginPath(); ctx.arc(e*s*0.4,-s*0.05,s*0.07,0,7); ctx.stroke(); }
-          ctx.restore(); }
-        ctx.restore();
-      } else { // ghost flock silhouette
-        ctx.strokeStyle=P.glow; ctx.lineWidth=2; ctx.globalAlpha=0.4;
-        for(let i=0;i<3;i++){ const dx=(i-1)*s*0.36, dy=Math.abs(i-1)*s*0.2, f=Math.sin(t*4+i)*0.2;
-          ctx.beginPath(); ctx.moveTo(dx-s*0.16,dy); ctx.quadraticCurveTo(dx-s*0.07,dy-s*(0.14+f),dx,dy);
-          ctx.quadraticCurveTo(dx+s*0.07,dy-s*(0.14-f),dx+s*0.16,dy); ctx.stroke(); }
+  nodeBody(ctx,r,t,P,st){ // a bubble with drifting highlights
+    ctx.strokeStyle=st.done?'rgba(255,217,119,0.7)':'rgba(160,255,240,0.6)'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.arc(0,0,r*1.02+Math.sin(t*2.6)*1.2,0,TAU); ctx.stroke();
+    ctx.beginPath(); ctx.arc(-r*0.4,-r*0.4,r*0.22,0.6,2.6); ctx.stroke();
+    ctx.beginPath(); ctx.arc(r*0.5+Math.sin(t*1.8)*3,-r*0.7,r*0.14,0,TAU); ctx.stroke();
+  },
+  critter(ctx,i,t,P,zH){ // fish leaping in glittering arcs
+    const per=3.6+i*0.9, u=((t+i*1.7)%per)/per;
+    const x0=40+i*(G.UNIT_W-140)/2, y0=300+i*(zH-560)/2, span=120+i*20;
+    if(u<0.5){
+      const f=u/0.5, x=x0+f*span, y=y0-Math.sin(f*Math.PI)*110;
+      const vx=1, vy=-Math.cos(f*Math.PI)*2.4;
+      ctx.save(); ctx.translate(x,y); ctx.rotate(Math.atan2(vy,vx));
+      ctx.fillStyle=P.accent;
+      ctx.beginPath(); ctx.ellipse(0,0,13,5,0,0,TAU); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(-11,0); ctx.lineTo(-18,-6); ctx.lineTo(-18,6); ctx.closePath(); ctx.fill();
+      ctx.fillStyle='rgba(255,255,255,0.85)';
+      ctx.beginPath(); ctx.ellipse(2,-2,5,1.6,-0.4+Math.sin(t*24)*0.3,0,TAU); ctx.fill();
+      ctx.fillStyle='#08222b'; ctx.beginPath(); ctx.arc(8,-1.4,1.4,0,TAU); ctx.fill();
+      ctx.restore();
+      ctx.globalCompositeOperation='lighter';           // droplet glitter
+      for(let d=0;d<3;d++){ const df=f-d*0.08; if(df<0) continue;
+        ctx.fillStyle='rgba(140,240,255,'+(0.5-d*0.14)+')';
+        ctx.beginPath(); ctx.arc(x0+df*span,y0-Math.sin(df*Math.PI)*110+6+d*5,1.6,0,TAU); ctx.fill(); }
+      ctx.globalCompositeOperation='source-over';
+    } else if(u<0.62){                                  // splash ring
+      const f=(u-0.5)/0.12;
+      ctx.strokeStyle='rgba(160,255,240,'+(0.6*(1-f))+')'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.ellipse(x0+span,y0+4,4+f*20,(4+f*20)*0.32,0,0,TAU); ctx.stroke();
+    }
+  },
+  drifter(ctx,d,t,P){ // bubbles wobbling up
+    ctx.strokeStyle='rgba(160,255,240,0.5)'; ctx.lineWidth=1.6;
+    ctx.beginPath(); ctx.arc(Math.sin(t*2+d.ph)*3,0,d.s*0.12,0,TAU); ctx.stroke();
+  },
+},
+boneyard:{
+  name:'SWARM OF BIRD SKELETONS',
+  palettes:[
+    { hue:262, bg:['#120b1c','#2c1e40'], node:'#efe8ff', nodeDone:'#8effc2',
+      lock:'#4a3d63', accent:'#f4f0e0', text:'#f1ecff', veil:'#0b0714' },
+    { hue:16,  bg:['#1a0c0c','#3d1c14'], node:'#ffe9d4', nodeDone:'#ffd977',
+      lock:'#5f4234', accent:'#fff3dd', text:'#ffefe2', veil:'#120707' },
+  ],
+  motif(ctx,m,t,P){
+    const s=m.s;
+    if(m.v<0.5){                                        // skull lantern, eyes aglow
+      ctx.save(); ctx.rotate(Math.sin(t*0.9+m.v*9)*0.08);
+      ctx.fillStyle=P.accent; ctx.globalAlpha=0.85;
+      ctx.beginPath(); ctx.arc(0,0,s*0.24,0,TAU); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(s*0.16,s*0.06); ctx.lineTo(s*0.46,s*0.16); ctx.lineTo(s*0.13,s*0.2); ctx.closePath(); ctx.fill();
+      const g=0.45+Math.sin(t*2.4+m.v*20)*0.35;
+      ctx.globalCompositeOperation='lighter';
+      ctx.fillStyle='rgba(190,160,255,'+g+')';
+      ctx.beginPath(); ctx.arc(-s*0.07,-s*0.04,s*0.075,0,TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(s*0.1,-s*0.01,s*0.055,0,TAU); ctx.fill();
+      ctx.globalCompositeOperation='source-over';
+      ctx.restore(); ctx.globalAlpha=1;
+    } else if(m.v<0.78){                                // slowly wheeling wishbone
+      ctx.save(); ctx.rotate(t*0.4*(m.v>0.64?1:-1));
+      ctx.strokeStyle=P.accent; ctx.globalAlpha=0.6; ctx.lineWidth=3; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(0,s*0.3);
+      ctx.quadraticCurveTo(0,0,-s*0.22,-s*0.3); ctx.moveTo(0,s*0.3);
+      ctx.quadraticCurveTo(0,0,s*0.22,-s*0.3); ctx.stroke();
+      for(const e of [-1,1]){ ctx.beginPath(); ctx.arc(e*s*0.24,-s*0.32,s*0.05,0,TAU); ctx.stroke(); }
+      ctx.restore(); ctx.globalAlpha=1;
+    } else {                                            // constellation of a bird
+      ctx.strokeStyle='rgba(207,196,255,0.35)'; ctx.lineWidth=1.4;
+      const pts=[[-0.4,0.1],[-0.15,-0.15],[0.1,0.02],[0.35,-0.2],[0.45,0.05]];
+      ctx.beginPath();
+      pts.forEach((p,i)=>{ const x=p[0]*s, y=p[1]*s; i?ctx.lineTo(x,y):ctx.moveTo(x,y); });
+      ctx.stroke();
+      for(const p of pts){
+        const tw=0.4+Math.sin(t*3+p[0]*17)*0.35;
+        ctx.globalCompositeOperation='lighter';
+        ctx.fillStyle='rgba(220,210,255,'+tw+')';
+        ctx.beginPath(); ctx.arc(p[0]*s,p[1]*s,1.8,0,TAU); ctx.fill();
+        ctx.globalCompositeOperation='source-over';
       }
-    },
+    }
   },
+  nodeBody(ctx,r,t,P,st){ // rune ring of little bones
+    ctx.save(); ctx.rotate(t*0.35);
+    ctx.strokeStyle=st.done?'rgba(142,255,194,0.6)':'rgba(230,220,255,0.55)';
+    ctx.lineWidth=2.4; ctx.lineCap='round';
+    for(let i=0;i<8;i++){ const a=i/8*TAU;
+      ctx.save(); ctx.translate(Math.cos(a)*r*0.95,Math.sin(a)*r*0.95); ctx.rotate(a+Math.PI/2);
+      ctx.beginPath(); ctx.moveTo(-3.4,0); ctx.lineTo(3.4,0); ctx.stroke();
+      ctx.beginPath(); ctx.arc(-4.2,-1,1.1,0,TAU); ctx.arc(-4.2,1,1.1,0,TAU); ctx.stroke();
+      ctx.beginPath(); ctx.arc(4.2,-1,1.1,0,TAU); ctx.arc(4.2,1,1.1,0,TAU); ctx.stroke();
+      ctx.restore(); }
+    ctx.restore();
+  },
+  critter(ctx,i,t,P,zH){ // skeleton birds — dead, still commuting
+    const sp=14+i*6, y0=220+i*(zH-440)/2;
+    const x=G.UNIT_W-(((t*sp+i*200)%(G.UNIT_W+140))-70);
+    const y=y0+Math.sin(t*1.1+i*2.2)*24, f=Math.sin(t*5.5+i)*0.55;
+    ctx.save(); ctx.translate(x,y); ctx.scale(-1,1); ctx.globalAlpha=0.8;
+    ctx.strokeStyle=P.accent; ctx.lineWidth=2; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(-8,0); ctx.lineTo(6,0); ctx.stroke();     // spine
+    for(let v=0;v<3;v++){ ctx.beginPath(); ctx.moveTo(-6+v*4,-2); ctx.lineTo(-6+v*4,2); ctx.stroke(); }
+    ctx.fillStyle=P.accent;
+    ctx.beginPath(); ctx.arc(8,-1,3.2,0,TAU); ctx.fill();                 // skull
+    ctx.beginPath(); ctx.moveTo(10.5,-1); ctx.lineTo(14,0); ctx.lineTo(10.5,0.8); ctx.fill();
+    ctx.fillStyle=P.bg[0]; ctx.beginPath(); ctx.arc(8.4,-1.6,1,0,TAU); ctx.fill();
+    ctx.strokeStyle=P.accent;
+    ctx.beginPath(); ctx.moveTo(-2,-1);                                   // bone wing, flapping
+    ctx.quadraticCurveTo(2,-8-f*6,10,-9-f*7); ctx.stroke();
+    for(let fe=0;fe<3;fe++){ ctx.beginPath(); ctx.moveTo(1+fe*3,-3-f*(2+fe)); ctx.lineTo(3+fe*3,-7-f*(4+fe)); ctx.stroke(); }
+    ctx.restore(); ctx.globalAlpha=1;
+  },
+  drifter(ctx,d,t,P){ // shy ghost wisps with eyes
+    ctx.save(); ctx.translate(Math.sin(t*1.2+d.ph)*5,0);
+    ctx.fillStyle='rgba(207,196,255,0.22)';
+    ctx.beginPath(); ctx.arc(0,0,d.s*0.16,Math.PI,0);
+    const w=d.s*0.16;
+    ctx.quadraticCurveTo(w*0.6,d.s*0.14,w*0.3,d.s*0.2);
+    ctx.quadraticCurveTo(0,d.s*0.12,-w*0.3,d.s*0.2);
+    ctx.quadraticCurveTo(-w*0.6,d.s*0.14,-w,0); ctx.fill();
+    if(!blink(t,d.ph)){ ctx.fillStyle='rgba(20,16,40,0.8)';
+      ctx.beginPath(); ctx.arc(-w*0.35,-d.s*0.03,1.2,0,TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(w*0.35,-d.s*0.03,1.2,0,TAU); ctx.fill(); }
+    ctx.restore();
+  },
+},
 };
 
-/* ---------------- fake progression state ----------------
-   Zones bottom-to-top. Visibility rule: previous zones visible (dimmed),
-   current bright, the NEXT zone a named silhouette, anything past that
-   hidden entirely. */
-const ZONES = [
-  { n: 11, theme:'sky',       pal:1, vis:'done',    stars:[3,2,3,2,3,3,2], skipUsed:false },
-  { n: 12, theme:'jungle',    pal:0, vis:'current', stars:[3,2,2,0,0,0,0], curLevel:4 },
-  { n: 13, theme:'fishbirds', pal:0, vis:'next' },
-  { n: 14, theme:'boneyard',  pal:0, vis:'hidden' },
+/* ---------------- progression state (fake) ---------------- */
+const ZONES=[
+  { n:11, theme:'sky',       pal:1, vis:'done',    stars:[3,2,3,2,3,3,2] },
+  { n:12, theme:'jungle',    pal:0, vis:'current', stars:[3,2,2,0,0,0,0], curLevel:4 },
+  { n:13, theme:'fishbirds', pal:0, vis:'next' },
+  { n:14, theme:'boneyard',  pal:0, vis:'hidden' },
 ];
+const NZ=ZONES.length, worldH=NZ*G.ZONE_H;
+const zoneTop=zi=>(NZ-1-zi)*G.ZONE_H;                    // zi 0 = bottom zone
+const zoneAt=wy=>clamp(NZ-1-Math.floor(wy/G.ZONE_H),0,NZ-1);
+const palOf=z=>THEMES[z.theme].palettes[z.pal];
 
 /* ---------------- boilerplate ---------------- */
 const cv=document.getElementById('c'), ctx=cv.getContext('2d');
 let W=0,H=0,DPR=1,S=1,t=0;
-function resize(){
-  DPR=Math.min(window.devicePixelRatio||1,3);
-  W=window.innerWidth; H=window.innerHeight;
-  cv.width=W*DPR; cv.height=H*DPR;
-  cv.style.width=W+'px'; cv.style.height=H+'px';
-  S=W/G.UNIT_W;
-}
-window.addEventListener('resize',resize); resize();
-function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let x=Math.imul(a^a>>>15,1|a);x=x+Math.imul(x^x>>>7,61|x)^x;return((x^x>>>14)>>>0)/4294967296}}
+function resize(){ DPR=Math.min(window.devicePixelRatio||1,3); W=innerWidth; H=innerHeight;
+  cv.width=W*DPR; cv.height=H*DPR; cv.style.width=W+'px'; cv.style.height=H+'px'; S=W/G.UNIT_W; }
+addEventListener('resize',resize); resize();
 
-/* ---------------- path geometry ----------------
-   Serpentine through 7 node anchors; enters at PORT (bottom center) and
-   exits at PORT (top center) so consecutive zones ALWAYS join cleanly —
-   that is the whole "tunnel fits zone to zone" guideline in one rule. */
-function zoneAnchors(){
-  const cx=G.UNIT_W*G.PORT_X, pts=[[cx,G.ZONE_H+60]];
-  for(let k=1;k<=7;k++){
-    const y=G.ZONE_H-150-(k-1)*(G.ZONE_H-330)/6;
-    pts.push([cx+(k%2?-1:1)*G.AMP, y]);
+/* ---------------- the tunnel: ONE continuous spline through all zones ---- */
+function buildWorldPath(){
+  const cx=G.UNIT_W*G.PORT_X, pts=[[cx,worldH+80]];
+  for(let zi=0;zi<NZ;zi++){
+    const top=zoneTop(zi);
+    for(let k=1;k<=7;k++){
+      const y=top+G.ZONE_H-150-(k-1)*(G.ZONE_H-330)/6;
+      pts.push([cx+(k%2?-1:1)*G.AMP,y]);
+    }
+    pts.push([cx,top]);                                  // port between zones
   }
-  pts.push([cx,-60]);
-  return pts;
-}
-const ANCH=zoneAnchors();
-function pathAt(u){ // rough interpolation along the anchor polyline for motif clearance
-  const seg=u*(ANCH.length-1), i=Math.min(ANCH.length-2,Math.floor(seg)), f=seg-i;
-  return [ANCH[i][0]+(ANCH[i+1][0]-ANCH[i][0])*f, ANCH[i][1]+(ANCH[i+1][1]-ANCH[i][1])*f];
-}
-function drawSpline(pts){
-  ctx.beginPath(); ctx.moveTo(pts[0][0],pts[0][1]);
+  pts.push([cx,-80]);
+  // sample catmull-rom into a dense LUT with tangents + arc length
+  const lut=[]; let cum=0;
   for(let i=0;i<pts.length-1;i++){
-    const p0=pts[Math.max(0,i-1)], p1=pts[i], p2=pts[i+1], p3=pts[Math.min(pts.length-1,i+2)];
-    ctx.bezierCurveTo(p1[0]+(p2[0]-p0[0])/6, p1[1]+(p2[1]-p0[1])/6,
-                      p2[0]-(p3[0]-p1[0])/6, p2[1]-(p3[1]-p1[1])/6, p2[0],p2[1]);
+    const p0=pts[Math.max(0,i-1)],p1=pts[i],p2=pts[i+1],p3=pts[Math.min(pts.length-1,i+2)];
+    for(let s2=0;s2<22;s2++){
+      const f=s2/22, f2=f*f, f3=f2*f;
+      const x=0.5*((2*p1[0])+(-p0[0]+p2[0])*f+(2*p0[0]-5*p1[0]+4*p2[0]-p3[0])*f2+(-p0[0]+3*p1[0]-3*p2[0]+p3[0])*f3);
+      const y=0.5*((2*p1[1])+(-p0[1]+p2[1])*f+(2*p0[1]-5*p1[1]+4*p2[1]-p3[1])*f2+(-p0[1]+3*p1[1]-3*p2[1]+p3[1])*f3);
+      if(lut.length){ const q=lut[lut.length-1]; cum+=Math.hypot(x-q.x,y-q.y); }
+      lut.push({x,y,cum});
+    }
   }
+  for(let i=0;i<lut.length;i++){
+    const a=lut[Math.max(0,i-1)], b=lut[Math.min(lut.length-1,i+1)];
+    lut[i].ang=Math.atan2(b.y-a.y,b.x-a.x);
+  }
+  return lut;
 }
+const LUT=buildWorldPath(), PATHLEN=LUT[LUT.length-1].cum;
+function pathPoint(dist){ // binary search by arc length
+  let lo=0,hi=LUT.length-1;
+  while(lo<hi){ const mid=(lo+hi)>>1; LUT[mid].cum<dist?lo=mid+1:hi=mid; }
+  const b=LUT[lo], a=LUT[Math.max(0,lo-1)];
+  const f=(a.cum===b.cum)?0:(dist-a.cum)/(b.cum-a.cum);
+  return {x:lerp(a.x,b.x,f), y:lerp(a.y,b.y,f), ang:a.ang+((b.ang-a.ang+Math.PI*3)%TAU-Math.PI)*f};
+}
+function nodeWorld(zi,k){
+  const cx=G.UNIT_W*G.PORT_X;
+  return [cx+(k%2?-1:1)*G.AMP, zoneTop(zi)+G.ZONE_H-150-(k-1)*(G.ZONE_H-330)/6];
+}
+/* ring hue melts from zone to zone across the BLEND band */
+function hueAtY(wy){
+  const zi=zoneAt(wy), base=palOf(ZONES[zi]).hue, top=zoneTop(zi);
+  if(zi<NZ-1 && wy-top<G.BLEND) return hueLerp(palOf(ZONES[zi+1]).hue,base,(wy-top)/G.BLEND);
+  if(zi>0 && (top+G.ZONE_H-wy)<G.BLEND) return hueLerp(palOf(ZONES[zi-1]).hue,base,(top+G.ZONE_H-wy)/G.BLEND);
+  return base;
+}
+function hexA(hex,a){ const n=parseInt(hex.slice(1),16);
+  return 'rgba('+(n>>16)+','+((n>>8)&255)+','+(n&255)+','+a+')'; }
 
-/* motif scatter, seeded per zone, kept clear of the tunnel corridor */
-const scatterCache={};
-function scatter(zi){
-  if(scatterCache[zi]) return scatterCache[zi];
-  const rng=mulberry32(0xBEEF^zi*7919), out=[];
-  let guard=0;
-  while(out.length<G.MOTIF.perZone && guard++<400){
+/* ---------------- seeded set dressing ---------------- */
+const motifCache={}, driftCache={};
+function motifs(zi){
+  if(motifCache[zi]) return motifCache[zi];
+  const rng=mulberry32(0xF00D^zi*7919), out=[]; let guard=0;
+  while(out.length<G.MOTIF.perZone && guard++<500){
     const x=G.MOTIF.margin+rng()*(G.UNIT_W-2*G.MOTIF.margin);
-    const y=60+rng()*(G.ZONE_H-120);
-    const [px]=pathAt(1-(y+60)/(G.ZONE_H+120));
-    if(Math.abs(x-px)<G.MOTIF.clearance) continue;
-    if(x>G.SKIP.lane-46 && x<G.SKIP.lane+46) continue;
+    const y=90+rng()*(G.ZONE_H-180);
+    const wy=zoneTop(zi)+y, pp=pathPoint(clamp((1-(wy+80)/(worldH+160))*PATHLEN,0,PATHLEN));
+    if(Math.abs(x-pp.x)<G.MOTIF.clearance && Math.abs(wy-pp.y)<G.MOTIF.clearance) continue;
+    if(x>G.SKIP.lane-42) continue;
     out.push({x,y,s:G.MOTIF.sizeMin+rng()*(G.MOTIF.sizeMax-G.MOTIF.sizeMin),v:rng()});
   }
-  scatterCache[zi]=out; return out;
+  return motifCache[zi]=out;
 }
+function drifters(zi){
+  if(driftCache[zi]) return driftCache[zi];
+  const rng=mulberry32(0xD1F7^zi*104729), out=[];
+  for(let i=0;i<G.LIFE.drifters;i++)
+    out.push({x:rng()*G.UNIT_W, y0:rng()*G.ZONE_H, s:14+rng()*18, sp:12+rng()*22, ph:rng()*9});
+  return driftCache[zi]=out;
+}
+/* starfield behind everything, gentle parallax */
+const STARS=[]; { const rng=mulberry32(0x57A2);
+  for(let i=0;i<130;i++) STARS.push({x:rng()*G.UNIT_W,y:rng()*worldH*0.92,r:0.6+rng()*1.4,ph:rng()*9}); }
+/* sparks that ride the tunnel */
+const SPARKS=[]; { const rng=mulberry32(0x5EED);
+  for(let i=0;i<G.LIFE.sparks;i++) SPARKS.push({d:rng()*1,sp:120+rng()*90,ph:rng()*9}); }
 
-/* ---------------- zone rendering ---------------- */
-function star(x,y,r,fill){
+/* ---------------- rendering ---------------- */
+function drawTube(camY){
+  const yTop=camY-60, yBot=camY+H/S+60;
+  /* soft beam */
+  ctx.save(); ctx.globalCompositeOperation='lighter'; ctx.lineCap='round';
   ctx.beginPath();
-  for(let i=0;i<10;i++){ const a=-Math.PI/2+i/10*Math.PI*2, rr=i%2?r*0.45:r;
-    ctx[i?'lineTo':'moveTo'](x+Math.cos(a)*rr,y+Math.sin(a)*rr); }
-  ctx.closePath(); ctx.fillStyle=fill; ctx.fill();
+  let started=false;
+  for(let i=0;i<LUT.length;i++){ const p=LUT[i];
+    if(p.y<yTop||p.y>yBot){ started=false; continue; }
+    started?ctx.lineTo(p.x,p.y-camY):(ctx.moveTo(p.x,p.y-camY),started=true); }
+  const hueMid=hueAtY(clamp(camY+H/S/2,0,worldH-1));
+  ctx.strokeStyle='hsla('+hueMid+',100%,60%,0.10)'; ctx.lineWidth=G.TUBE.beamW; ctx.stroke();
+  ctx.strokeStyle='hsla('+hueMid+',80%,70%,0.08)'; ctx.lineWidth=G.TUBE.beamW*0.5; ctx.stroke();
+  /* the rings — the actual hypno tunnel */
+  const cur=ZONES.find(z=>z.vis==='current');
+  const curZi=ZONES.indexOf(cur), [ncx,ncy]=nodeWorld(curZi,cur.curLevel);
+  for(let d=0,k2=0; d<PATHLEN; d+=G.TUBE.ringGap,k2++){
+    const p=pathPoint(d);
+    if(p.y<yTop||p.y>yBot) continue;
+    const hue=(hueAtY(p.y)+k2*4+t*40)%360;
+    const near=Math.hypot(p.x-ncx,p.y-ncy)<G.TUBE.pulseNear;
+    const puls=near?1+Math.sin(t*5-d*0.05)*0.18:1+Math.sin(t*2.2+d*0.06)*0.05;
+    ctx.save(); ctx.translate(p.x,p.y-camY); ctx.rotate(p.ang+Math.PI/2);
+    ctx.strokeStyle='hsla('+hue+',100%,62%,0.34)'; ctx.lineWidth=4.5;
+    ctx.beginPath(); ctx.ellipse(0,0,G.TUBE.rx*puls,G.TUBE.ry*puls,0,0,TAU); ctx.stroke();
+    ctx.strokeStyle='hsla('+hue+',100%,'+(near?78:70)+'%,0.9)'; ctx.lineWidth=1.6;
+    ctx.beginPath(); ctx.ellipse(0,0,G.TUBE.rx*puls,G.TUBE.ry*puls,0,0,TAU); ctx.stroke();
+    ctx.restore();
+  }
+  /* sparks flowing through */
+  for(const s2 of SPARKS){
+    const d=((s2.d+t*s2.sp/PATHLEN)%1)*PATHLEN, p=pathPoint(d);
+    if(p.y<yTop||p.y>yBot) continue;
+    const hue=(hueAtY(p.y)+t*40)%360, tw=0.55+Math.sin(t*6+s2.ph)*0.35;
+    ctx.fillStyle='hsla('+hue+',100%,75%,'+tw+')';
+    ctx.beginPath(); ctx.arc(p.x,p.y-camY,2.2,0,TAU); ctx.fill();
+    const q=pathPoint(Math.max(0,d-14));
+    ctx.strokeStyle='hsla('+hue+',100%,70%,'+(tw*0.4)+')'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(q.x,q.y-camY); ctx.lineTo(p.x,p.y-camY); ctx.stroke();
+  }
+  ctx.restore();
 }
+function wavyText(txt,x,y,size,fill,glow){
+  ctx.font='900 '+size+'px system-ui,sans-serif';
+  ctx.textAlign='left'; ctx.textBaseline='middle';
+  let tw=0; const ws=[];
+  for(const ch of txt){ const w=ctx.measureText(ch).width; ws.push(w); tw+=w; }
+  let xx=x-tw/2;
+  for(let i=0;i<txt.length;i++){
+    const dy=Math.sin(t*2.6+i*0.55)*2.6;
+    if(glow){ ctx.shadowColor=glow; ctx.shadowBlur=10; }
+    ctx.fillStyle=fill; ctx.fillText(txt[i],xx,y+dy);
+    ctx.shadowBlur=0; xx+=ws[i];
+  }
+  ctx.textAlign='center';
+}
+const nodePop={};
 function drawBirdie(x,y,sz){
   ctx.save(); ctx.translate(x,y+Math.sin(t*3)*3);
-  const f=Math.sin(t*8)*0.35;
+  const hop=Math.max(0,Math.sin(t*1.6));               // occasional excited flap
+  const f=Math.sin(t*8)*0.35+hop*0.4;
   ctx.fillStyle='#ffb23e';
-  ctx.beginPath(); ctx.ellipse(-sz*0.55,-sz*0.1,sz*0.5,sz*0.22,-0.5-f,0,7); ctx.fill();
-  ctx.beginPath(); ctx.ellipse(sz*0.55,-sz*0.1,sz*0.5,sz*0.22,0.5+f,0,7); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(-sz*0.55,-sz*0.1,sz*0.5,sz*0.22,-0.5-f,0,TAU); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(sz*0.55,-sz*0.1,sz*0.5,sz*0.22,0.5+f,0,TAU); ctx.fill();
   const bg=ctx.createRadialGradient(-sz*0.2,-sz*0.25,sz*0.1,0,0,sz*0.9);
   bg.addColorStop(0,'#ffdf6e'); bg.addColorStop(1,'#e8920f');
-  ctx.fillStyle=bg; ctx.beginPath(); ctx.ellipse(0,0,sz*0.62,sz*0.68,0,0,7); ctx.fill();
-  ctx.fillStyle='#ffd23e'; ctx.beginPath(); ctx.arc(0,-sz*0.62,sz*0.34,0,7); ctx.fill();
-  ctx.fillStyle='#111'; ctx.beginPath(); ctx.arc(-sz*0.12,-sz*0.66,sz*0.06,0,7); ctx.fill();
-  ctx.beginPath(); ctx.arc(sz*0.12,-sz*0.66,sz*0.06,0,7); ctx.fill();
+  ctx.fillStyle=bg; ctx.beginPath(); ctx.ellipse(0,0,sz*0.62,sz*0.68,0,0,TAU); ctx.fill();
+  ctx.fillStyle='#ffd23e'; ctx.beginPath(); ctx.arc(0,-sz*0.62,sz*0.36,0,TAU); ctx.fill();
+  const bl=blink(t,0.3);
+  ctx.fillStyle='#111';
+  for(const e of [-1,1]){ ctx.beginPath();
+    ctx.ellipse(e*sz*0.13,-sz*0.66,sz*0.07,sz*0.07*(1-bl*0.9),0,0,TAU); ctx.fill(); }
+  ctx.fillStyle='rgba(255,120,120,0.55)';               // blush
+  for(const e of [-1,1]){ ctx.beginPath(); ctx.arc(e*sz*0.26,-sz*0.56,sz*0.06,0,TAU); ctx.fill(); }
   ctx.fillStyle='#ff8b30'; ctx.beginPath();
-  ctx.moveTo(-sz*0.07,-sz*0.55); ctx.lineTo(sz*0.07,-sz*0.55); ctx.lineTo(0,-sz*0.42); ctx.closePath(); ctx.fill();
+  ctx.moveTo(-sz*0.07,-sz*0.55); ctx.lineTo(sz*0.07,-sz*0.55); ctx.lineTo(0,-sz*0.4); ctx.closePath(); ctx.fill();
+  if(hop>0.75){ ctx.globalCompositeOperation='lighter'; // sparkle when it flaps
+    for(let i=0;i<3;i++){ const a=t*7+i*2.1;
+      ctx.fillStyle='rgba(255,240,160,0.7)';
+      ctx.beginPath(); ctx.arc(Math.cos(a)*sz,Math.sin(a)*sz*0.7-sz*0.3,1.5,0,TAU); ctx.fill(); }
+    ctx.globalCompositeOperation='source-over'; }
   ctx.restore();
 }
-function drawZone(z,zi){
-  const TH=THEMES[z.theme], P=TH.palettes[z.pal];
-  const bg=ctx.createLinearGradient(0,0,0,G.ZONE_H);
-  bg.addColorStop(0,P.bg[1]); bg.addColorStop(1,P.bg[0]);
-  ctx.fillStyle=bg; ctx.fillRect(0,-1,G.UNIT_W,G.ZONE_H+2);
+function star5(x,y,r,fill,rot){
+  ctx.save(); ctx.translate(x,y); ctx.rotate(rot||0);
+  ctx.beginPath();
+  for(let i=0;i<10;i++){ const a=-Math.PI/2+i/10*TAU, rr=i%2?r*0.45:r;
+    ctx[i?'lineTo':'moveTo'](Math.cos(a)*rr,Math.sin(a)*rr); }
+  ctx.closePath(); ctx.fillStyle=fill; ctx.fill(); ctx.restore();
+}
 
-  for(const m of scatter(zi)){
-    ctx.save(); ctx.translate(m.x,m.y); TH.motif(ctx,m.s,m.v,t,P); ctx.restore();
-    ctx.globalAlpha=1;
+function drawZoneLayer(zi,camY){
+  const z=ZONES[zi], TH=THEMES[z.theme], P=palOf(z), top=zoneTop(zi);
+  ctx.save(); ctx.translate(0,top-camY);
+  /* motifs */
+  for(const m of motifs(zi)){
+    ctx.save(); ctx.translate(m.x,m.y);
+    TH.motif(ctx,m,t,P);
+    ctx.restore(); ctx.globalAlpha=1;
   }
-
-  /* the tunnel */
-  ctx.save();
-  ctx.lineCap='round'; ctx.lineJoin='round';
-  ctx.strokeStyle=P.glow; ctx.globalAlpha=0.20; ctx.lineWidth=G.PATH.glowW;
-  drawSpline(ANCH); ctx.stroke();
-  ctx.globalAlpha=1;
-  ctx.strokeStyle=P.edge; ctx.lineWidth=G.PATH.edgeW; drawSpline(ANCH); ctx.stroke();
-  ctx.strokeStyle=P.inner; ctx.lineWidth=G.PATH.innerW; drawSpline(ANCH); ctx.stroke();
-  ctx.strokeStyle=P.dash; ctx.lineWidth=G.PATH.dashW;
-  ctx.setLineDash(G.PATH.dash); ctx.lineDashOffset=-t*26;
-  drawSpline(ANCH); ctx.stroke(); ctx.setLineDash([]);
+  /* drifting ambience, forever rising */
+  for(const d of drifters(zi)){
+    const y=((d.y0-t*d.sp)%G.ZONE_H+G.ZONE_H)%G.ZONE_H;
+    ctx.save(); ctx.translate(d.x+Math.sin(t*0.8+d.ph)*10,y);
+    TH.drifter(ctx,d,t,P);
+    ctx.restore(); ctx.globalAlpha=1; ctx.globalCompositeOperation='source-over';
+  }
+  /* critters */
+  if(z.vis!=='hidden') for(let i=0;i<G.LIFE.critters;i++) TH.critter(ctx,i,t,P,G.ZONE_H);
   ctx.restore();
-
-  /* zone-boundary gate ring at the entry port (tunnel mouth) */
+}
+function drawZoneUI(zi,camY){
+  const z=ZONES[zi], TH=THEMES[z.theme], P=palOf(z), top=zoneTop(zi);
   const cx=G.UNIT_W*G.PORT_X;
-  ctx.strokeStyle=P.glow; ctx.lineWidth=4;
-  ctx.beginPath(); ctx.ellipse(cx,G.ZONE_H,34,12,0,0,7); ctx.stroke();
-  ctx.globalAlpha=0.4; ctx.beginPath(); ctx.ellipse(cx,G.ZONE_H,46,17,0,0,7); ctx.stroke();
-  ctx.globalAlpha=1;
-
-  /* skip lane: dashed bypass from node 1 up the right edge to the exit */
-  const n1=ANCH[1], skipY=(ANCH[3][1]+ANCH[4][1])/2;
-  ctx.strokeStyle=P.accent; ctx.globalAlpha=0.65; ctx.lineWidth=3;
-  ctx.setLineDash([5,9]); ctx.lineDashOffset=-t*14;
-  drawSpline([[n1[0],n1[1]],[G.SKIP.lane,ANCH[2][1]],[G.SKIP.lane,skipY],[G.SKIP.lane,ANCH[6][1]],[cx,-60]]);
-  ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha=1;
-  /* the x2 gate diamond */
-  ctx.save(); ctx.translate(G.SKIP.lane,skipY); ctx.rotate(Math.PI/4);
-  ctx.fillStyle=P.bg[0]; ctx.strokeStyle=P.accent; ctx.lineWidth=3;
-  const sr=G.SKIP.r;
-  ctx.beginPath(); ctx.rect(-sr,-sr,sr*2,sr*2); ctx.fill(); ctx.stroke();
+  ctx.save(); ctx.translate(0,top-camY);
+  /* skip lane: dashed comet trail to the exit + spinning x2 gate */
+  const n1=nodeWorld(zi,1), skipY=(nodeWorld(zi,3)[1]+nodeWorld(zi,4)[1])/2-top;
+  ctx.strokeStyle=hexA(P.nodeDone==='#ffd977'?'#ffd977':'#ffd977',0.55);
+  ctx.lineWidth=2.5; ctx.setLineDash([4,10]); ctx.lineDashOffset=-t*22;
+  ctx.beginPath();
+  ctx.moveTo(n1[0],n1[1]-top);
+  ctx.bezierCurveTo(G.SKIP.lane,n1[1]-top-60,G.SKIP.lane,skipY+120,G.SKIP.lane,skipY);
+  ctx.bezierCurveTo(G.SKIP.lane,skipY-160,cx+70,90,cx,0);
+  ctx.stroke(); ctx.setLineDash([]);
+  ctx.save(); ctx.translate(G.SKIP.lane,skipY);
+  ctx.rotate(t*0.9);                                    // the game's spinning gate
+  ctx.strokeStyle='#ffd977'; ctx.lineWidth=3;
+  ctx.shadowColor='#ffd977'; ctx.shadowBlur=12;
+  ctx.beginPath();
+  for(let i=0;i<6;i++){ const a=i/6*TAU;
+    ctx[i?'lineTo':'moveTo'](Math.cos(a)*G.SKIP.r,Math.sin(a)*G.SKIP.r); }
+  ctx.closePath(); ctx.stroke(); ctx.shadowBlur=0;
   ctx.restore();
-  ctx.fillStyle=P.accent; ctx.textAlign='center'; ctx.textBaseline='middle';
-  ctx.font='900 '+G.TEXT.node+'px system-ui,sans-serif';
+  ctx.fillStyle='#ffd977'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.font='900 13px system-ui,sans-serif';
   ctx.fillText('×2',G.SKIP.lane,skipY);
-  ctx.font='700 '+(G.TEXT.node-3)+'px system-ui,sans-serif';
-  ctx.fillText('SKIP',G.SKIP.lane,skipY+sr+11);
-
-  /* level nodes */
+  ctx.font='700 9px system-ui,sans-serif'; ctx.fillStyle='rgba(255,217,119,0.8)';
+  ctx.fillText('SKIP',G.SKIP.lane,skipY+G.SKIP.r+11);
+  const orb=t*2.2;                                      // spark orbiting the gate
+  ctx.globalCompositeOperation='lighter';
+  ctx.fillStyle='rgba(255,230,150,0.9)';
+  ctx.beginPath(); ctx.arc(G.SKIP.lane+Math.cos(orb)*(G.SKIP.r+7),skipY+Math.sin(orb)*(G.SKIP.r+7),2,0,TAU); ctx.fill();
+  ctx.globalCompositeOperation='source-over';
+  /* nodes */
   for(let k=1;k<=7;k++){
-    const [x,y]=ANCH[k];
-    const done=z.stars && z.stars[k-1]>0;
-    const isCur=z.vis==='current' && z.curLevel===k;
-    const r=G.NODE.r*(isCur?1+Math.sin(t*4)*0.06:1);
-    ctx.fillStyle=P.bg[0];
-    ctx.strokeStyle=done?P.nodeDone:isCur?P.node:P.lock;
-    ctx.lineWidth=G.NODE.ringW;
-    if(isCur){ ctx.shadowColor=P.node; ctx.shadowBlur=18; }
-    ctx.beginPath(); ctx.arc(x,y,r,0,7); ctx.fill(); ctx.stroke();
-    ctx.shadowBlur=0;
-    ctx.fillStyle=done?P.nodeDone:isCur?P.text:P.lock;
+    const [wx,wy]=nodeWorld(zi,k), x=wx, y=wy-top;
+    const done=z.stars&&z.stars[k-1]>0, isCur=z.vis==='current'&&z.curLevel===k;
+    const key=zi+'-'+k, pop=nodePop[key]||0;
+    const r=G.NODE.r*(isCur?1+Math.sin(t*4)*0.06:1)*(1+pop*0.22*Math.sin(pop*9));
+    ctx.save(); ctx.translate(x,y);
+    TH.nodeBody(ctx,r,t,P,{done,cur:isCur});
+    ctx.fillStyle='rgba(5,1,15,0.82)';
+    ctx.beginPath(); ctx.arc(0,0,r*0.64,0,TAU); ctx.fill();
+    ctx.strokeStyle=done?P.nodeDone:isCur?P.node:P.lock; ctx.lineWidth=G.NODE.ringW;
+    if(isCur){ ctx.shadowColor=P.node; ctx.shadowBlur=16; }
+    ctx.beginPath(); ctx.arc(0,0,r*0.64,0,TAU); ctx.stroke(); ctx.shadowBlur=0;
+    ctx.fillStyle=done?P.nodeDone:isCur?'#fff':P.lock;
     ctx.font='900 '+G.TEXT.node+'px system-ui,sans-serif';
     ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.fillText(String(k),x,y+0.5);
-    if(done){ // earned stars above the node
-      const n=z.stars[k-1];
-      for(let s2=0;s2<3;s2++)
-        star(x+(s2-1)*13, y-r-13+(s2===1?-3:0), G.NODE.starR, s2<n?P.nodeDone:'rgba(255,255,255,0.15)');
-    }
-    if(!done && !isCur && z.vis==='current'){ // padlock dot on locked nodes
-      ctx.fillStyle=P.lock; ctx.beginPath(); ctx.arc(x,y-r-8,3,0,7); ctx.fill();
-    }
-    if(isCur) drawBirdie(x-42,y-26,15);
+    ctx.fillText(String(k),0,0.5);
+    if(done){ const n=z.stars[k-1];
+      for(let s2=0;s2<3;s2++){
+        const tw=s2<n&&Math.sin(t*3+s2*2+k)>0.93;
+        star5((s2-1)*13,-r-13+(s2===1?-3:0),G.NODE.starR*(tw?1.35:1),
+              s2<n?P.nodeDone:'rgba(255,255,255,0.14)',(s2-1)*0.2+(tw?t*3:0));
+      } }
+    ctx.restore();
+    if(isCur) drawBirdie(x-44,y-26,15);
   }
-
-  /* zone name plate near the entry — only where the veil rules allow it
-     (the 'next' treatment re-draws its own tease, 'hidden' shows nothing) */
+  /* the tunnel-mouth between zones: a big slow gate ring */
+  ctx.save(); ctx.translate(cx,G.ZONE_H);
+  ctx.strokeStyle='hsla('+hueAtY(top+G.ZONE_H-1)+',100%,65%,0.8)'; ctx.lineWidth=3.4;
+  ctx.shadowColor='hsla('+hueAtY(top+G.ZONE_H-1)+',100%,60%,1)'; ctx.shadowBlur=14;
+  for(const rr of [1,1.45]){
+    ctx.save(); ctx.rotate(Math.sin(t*0.7)*0.06); ctx.globalAlpha=rr===1?0.9:0.35;
+    ctx.beginPath(); ctx.ellipse(0,0,36*rr,13*rr,0,0,TAU); ctx.stroke(); ctx.restore(); }
+  ctx.shadowBlur=0; ctx.restore();
+  /* zone plate */
   if(z.vis==='done'||z.vis==='current'){
+    wavyText('ZONE '+z.n,cx,G.ZONE_H-58,G.TEXT.zone,P.text,'hsla('+P.hue+',100%,60%,1)');
+    wavyText(TH.name,cx,G.ZONE_H-34,G.TEXT.zone-6,'hsla('+P.hue+',90%,75%,1)');
+    if(z.vis==='done'){ const tot=z.stars.reduce((a,b)=>a+b,0);
+      ctx.font='800 11px system-ui,sans-serif'; ctx.fillStyle='rgba(255,217,119,0.85)';
+      ctx.fillText('★ '+tot+' / 21',cx,G.ZONE_H-13); }
+  }
+  ctx.restore();
+}
+function drawVeil(zi,camY){
+  const z=ZONES[zi]; if(z.vis!=='next'&&z.vis!=='hidden') return;
+  const P=palOf(z), TH=THEMES[z.theme], top=zoneTop(zi), cx=G.UNIT_W*G.PORT_X;
+  ctx.save(); ctx.translate(0,top-camY);
+  const a=z.vis==='next'?0.78:0.93;
+  const vg=ctx.createLinearGradient(0,G.ZONE_H,0,G.ZONE_H-G.BLEND);   // feathered veil
+  vg.addColorStop(0,hexA(P.veil,0)); vg.addColorStop(1,hexA(P.veil,a));
+  ctx.fillStyle=vg; ctx.fillRect(0,G.ZONE_H-G.BLEND,G.UNIT_W,G.BLEND);
+  ctx.fillStyle=hexA(P.veil,a); ctx.fillRect(0,-1,G.UNIT_W,G.ZONE_H-G.BLEND+1);
+  /* soft fog banks rolling over the veil */
+  for(let i=0;i<4;i++){
+    const wy=(i*0.27*G.ZONE_H+Math.sin(t*0.4+i)*60)%G.ZONE_H;
+    const wx=(t*14*(i%2?1:-1)+i*130)%(G.UNIT_W+240)-120;
+    const fg=ctx.createRadialGradient(wx,wy,0,wx,wy,120);
+    fg.addColorStop(0,'rgba(207,208,255,0.08)'); fg.addColorStop(1,'rgba(207,208,255,0)');
+    ctx.fillStyle=fg;
+    ctx.beginPath(); ctx.ellipse(wx,wy,120,34,0,0,TAU); ctx.fill();
+  }
+  if(z.vis==='next'){
+    wavyText('ZONE '+z.n,cx,G.ZONE_H-58,G.TEXT.zone,'rgba(255,255,255,0.8)','hsla('+P.hue+',100%,60%,0.9)');
+    wavyText(TH.name,cx,G.ZONE_H-34,G.TEXT.zone-6,'hsla('+P.hue+',80%,72%,0.85)');
+    ctx.font='700 11px system-ui,sans-serif'; ctx.fillStyle='rgba(255,255,255,0.42)';
     ctx.textAlign='center';
-    ctx.font='900 '+G.TEXT.zone+'px system-ui,sans-serif';
-    ctx.fillStyle=P.text; ctx.shadowColor=P.glow; ctx.shadowBlur=12;
-    ctx.fillText('ZONE '+z.n,cx,G.ZONE_H-52);
+    ctx.fillText('clear zone '+(z.n-1)+' to light the way',cx,G.ZONE_H-13);
+  } else {
+    const p=0.25+Math.sin(t*1.8)*0.1;
+    ctx.font='900 46px system-ui,sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.shadowColor='rgba(200,190,255,0.8)'; ctx.shadowBlur=18;
+    ctx.fillStyle='rgba(255,255,255,'+p+')';
+    ctx.fillText('?',cx+Math.sin(t*0.9)*6,G.ZONE_H*0.55+Math.sin(t*1.3)*10);
     ctx.shadowBlur=0;
-    ctx.font='800 '+(G.TEXT.zone-5)+'px system-ui,sans-serif';
-    ctx.fillStyle=P.glow;
-    ctx.fillText(TH.name,cx,G.ZONE_H-30);
   }
-
-  /* visibility treatments */
-  if(z.vis==='done'){
-    ctx.fillStyle='rgba(5,1,15,0.35)'; ctx.fillRect(0,-1,G.UNIT_W,G.ZONE_H+2);
-  }
-  if(z.vis==='next'){ // named silhouette: shape and name tease through
-    ctx.fillStyle='rgba(5,1,15,0.78)'; ctx.fillRect(0,-1,G.UNIT_W,G.ZONE_H+2);
-    ctx.font='900 '+G.TEXT.zone+'px system-ui,sans-serif';
-    ctx.fillStyle='rgba(255,255,255,0.75)';
-    ctx.fillText('ZONE '+z.n,cx,G.ZONE_H-52);
-    ctx.font='800 '+(G.TEXT.zone-5)+'px system-ui,sans-serif';
-    ctx.fillStyle=P.glow; ctx.globalAlpha=0.8;
-    ctx.fillText(TH.name,cx,G.ZONE_H-30); ctx.globalAlpha=1;
-    ctx.font='700 12px system-ui,sans-serif';
-    ctx.fillStyle='rgba(255,255,255,0.4)';
-    ctx.fillText('clear zone '+(z.n-1)+' to enter',cx,G.ZONE_H-10);
-  }
-  if(z.vis==='hidden'){ // beyond the veil: pure mystery
-    ctx.fillStyle='rgba(5,1,15,0.94)'; ctx.fillRect(0,-1,G.UNIT_W,G.ZONE_H+2);
-    ctx.font='900 44px system-ui,sans-serif';
-    ctx.fillStyle='rgba(255,255,255,'+(0.2+Math.sin(t*2)*0.08)+')';
-    ctx.fillText('?',cx,G.ZONE_H/2);
-  }
+  ctx.restore();
 }
 
-/* ---------------- scrolling & input ---------------- */
-const worldH=ZONES.length*G.ZONE_H;
-let camY=0, dragging=false, dragY0=0, camY0=0, moved=false, vel=0, lastY=0, toast='', toastT=0;
-function clampCam(){ camY=Math.max(0,Math.min(worldH-H/S,camY)); }
-camY=worldH-2*G.ZONE_H+ (G.ZONE_H-innerHeight/S)*0.6; clampCam(); // start on the current zone
-window.addEventListener('pointerdown',e=>{ dragging=true; moved=false; dragY0=e.clientY; camY0=camY; lastY=e.clientY; vel=0; });
-window.addEventListener('pointermove',e=>{
-  if(!dragging) return;
+/* ---------------- scroll, tap, toast ---------------- */
+let camY=0,dragging=false,dragY0=0,camY0=0,moved=false,vel=0,lastY=0;
+let toast='',toastT=0,toastHue=140;
+function clampCam(){ camY=clamp(camY,0,worldH-H/S); }
+camY=zoneTop(1)+(G.ZONE_H-innerHeight/S)*0.62; clampCam();
+addEventListener('pointerdown',e=>{ dragging=true; moved=false; dragY0=e.clientY; camY0=camY; lastY=e.clientY; vel=0; });
+addEventListener('pointermove',e=>{ if(!dragging) return;
   if(Math.abs(e.clientY-dragY0)>6) moved=true;
-  camY=camY0+(e.clientY-dragY0)/S; clampCam();
-  vel=(e.clientY-lastY)/S; lastY=e.clientY;
-});
-window.addEventListener('pointerup',e=>{
-  if(dragging && !moved) tap(e.clientX/S, e.clientY/S+camY);
-  dragging=false;
-});
-window.addEventListener('pointercancel',()=>dragging=false);
-window.addEventListener('wheel',e=>{ camY+=e.deltaY/S; clampCam(); },{passive:true});
+  camY=camY0+(e.clientY-dragY0)/S; clampCam(); vel=(e.clientY-lastY)/S; lastY=e.clientY; });
+addEventListener('pointerup',e=>{ if(dragging&&!moved) tap(e.clientX/S,e.clientY/S+camY); dragging=false; });
+addEventListener('pointercancel',()=>dragging=false);
+addEventListener('wheel',e=>{ camY+=e.deltaY/S; clampCam(); },{passive:true});
 function tap(ux,wy){
-  const zi=ZONES.length-1-Math.floor(wy/G.ZONE_H);
-  if(zi<0||zi>=ZONES.length) return;
-  const z=ZONES[zi], ly=wy-(ZONES.length-1-zi)*G.ZONE_H;
-  if(z.vis==='next'||z.vis==='hidden'){ say('the tunnel ahead is still dark…'); return; }
-  const skipY=(ANCH[3][1]+ANCH[4][1])/2;
+  const zi=zoneAt(wy), z=ZONES[zi], ly=wy-zoneTop(zi);
+  if(z.vis==='next'||z.vis==='hidden'){ say('the tunnel ahead is still dark…',260); return; }
+  const skipY=(nodeWorld(zi,3)[1]+nodeWorld(zi,4)[1])/2-zoneTop(zi);
   if(Math.hypot(ux-G.SKIP.lane,ly-skipY)<34){
-    say('SKIP GATE — beat one level at ×2 difficulty to jump to zone '+(z.n+1)); return;
-  }
+    say('beat one level at ×2 difficulty to skip ahead!',48); return; }
   for(let k=1;k<=7;k++){
-    const [x,y]=ANCH[k];
-    if(Math.hypot(ux-x,ly-y)<G.NODE.r+10){
-      if(z.vis==='done') say('replay level '+z.n+'-'+k+' for missing stars');
-      else if(z.curLevel===k) say('would launch level '+z.n+'-'+k);
-      else if(z.stars&&z.stars[k-1]>0) say('replay level '+z.n+'-'+k);
-      else say('locked — clear level '+z.n+'-'+(z.curLevel)+' first');
-      return;
-    }
-  }
+    const [wx2,wy2]=nodeWorld(zi,k);
+    if(Math.hypot(ux-wx2,wy-wy2)<G.NODE.r+11){
+      nodePop[zi+'-'+k]=1;
+      if(z.vis==='done') say('replay '+z.n+'-'+k+' for missing stars',48);
+      else if(z.curLevel===k) say('LEVEL '+z.n+'-'+k+' — let’s fly!',(palOf(z).hue+40)%360);
+      else if(z.stars&&z.stars[k-1]>0) say('replay level '+z.n+'-'+k,140);
+      else say('locked — clear level '+z.n+'-'+z.curLevel+' first',0);
+      return; } }
 }
-function say(m){ toast=m; toastT=3; }
+function say(m,hue){ toast=m; toastT=2.6; toastHue=hue; }
 
-/* ---------------- frame loop ---------------- */
+/* ---------------- frame ---------------- */
 let last=performance.now();
 function frame(now){
   const dt=Math.min(0.05,(now-last)/1000); last=now; t+=dt;
-  if(!dragging && Math.abs(vel)>1){ camY+=vel; vel*=0.93; clampCam(); }
+  if(!dragging&&Math.abs(vel)>0.5){ camY+=vel; vel*=0.94; clampCam(); }
   toastT=Math.max(0,toastT-dt);
+  for(const k in nodePop){ nodePop[k]=Math.max(0,nodePop[k]-dt*2.4); }
   ctx.setTransform(DPR,0,0,DPR,0,0);
-  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle='#05010f'; ctx.fillRect(0,0,W,H);
   ctx.save(); ctx.scale(S,S);
-  for(let zi=0;zi<ZONES.length;zi++){
-    const top=(ZONES.length-1-zi)*G.ZONE_H;
-    if(top+G.ZONE_H<camY || top>camY+H/S) continue;
-    ctx.save(); ctx.translate(0,top-camY);
-    drawZone(ZONES[zi],zi);
-    ctx.restore();
+  /* starfield with parallax */
+  for(const st of STARS){
+    const sy=st.y-camY*0.82;
+    if(sy<-10||sy>H/S+10) continue;
+    ctx.fillStyle='rgba(255,255,255,'+(0.25+Math.sin(t*2+st.ph)*0.2)+')';
+    ctx.beginPath(); ctx.arc(st.x,sy,st.r,0,TAU); ctx.fill();
+  }
+  /* zone backgrounds, feathered so they melt together */
+  for(let zi=0;zi<NZ;zi++){
+    const top=zoneTop(zi);
+    if(top+G.ZONE_H+G.BLEND<camY||top-G.BLEND>camY+H/S) continue;
+    const P=palOf(ZONES[zi]);
+    const gTop=top-G.BLEND*0.5, gBot=top+G.ZONE_H+G.BLEND*0.5;
+    const bg=ctx.createLinearGradient(0,gTop-camY,0,gBot-camY);
+    bg.addColorStop(0,hexA(P.bg[1],0)); bg.addColorStop(G.BLEND/(gBot-gTop),hexA(P.bg[1],0.9));
+    bg.addColorStop(1-G.BLEND/(gBot-gTop),hexA(P.bg[0],0.9)); bg.addColorStop(1,hexA(P.bg[0],0));
+    ctx.fillStyle=bg; ctx.fillRect(0,gTop-camY,G.UNIT_W,gBot-gTop);
+  }
+  for(let zi=0;zi<NZ;zi++){
+    const top=zoneTop(zi);
+    if(top+G.ZONE_H<camY||top>camY+H/S) continue;
+    drawZoneLayer(zi,camY);
+  }
+  drawTube(camY);
+  for(let zi=0;zi<NZ;zi++){
+    const top=zoneTop(zi);
+    if(top+G.ZONE_H<camY||top>camY+H/S) continue;
+    if(ZONES[zi].vis==='done'||ZONES[zi].vis==='current') drawZoneUI(zi,camY);
+    drawVeil(zi,camY);
   }
   ctx.restore();
-
-  /* fixed chrome */
+  /* vignette */
+  const vg=ctx.createRadialGradient(W/2,H/2,Math.min(W,H)*0.45,W/2,H/2,Math.max(W,H)*0.72);
+  vg.addColorStop(0,'rgba(5,1,15,0)'); vg.addColorStop(1,'rgba(5,1,15,0.5)');
+  ctx.fillStyle=vg; ctx.fillRect(0,0,W,H);
+  /* chrome */
   const cur=ZONES.find(z=>z.vis==='current');
-  ctx.fillStyle='rgba(5,1,15,0.88)'; ctx.fillRect(0,0,W,44);
+  const hg=ctx.createLinearGradient(0,0,0,64);
+  hg.addColorStop(0,'rgba(5,1,15,0.9)'); hg.addColorStop(1,'rgba(5,1,15,0)');
+  ctx.fillStyle=hg; ctx.fillRect(0,0,W,64);
+  ctx.save(); ctx.scale(S,S);
+  wavyText('ZONE '+cur.n+' · '+THEMES[cur.theme].name,G.UNIT_W/2,26,14,'#fff',
+           'hsla('+palOf(cur).hue+',100%,60%,1)');
+  ctx.restore();
   ctx.textAlign='left'; ctx.textBaseline='middle';
-  ctx.font='900 14px system-ui,sans-serif'; ctx.fillStyle='#fff';
-  ctx.fillText('ZONE '+cur.n+' · '+THEMES[cur.theme].name,14,22);
-  ctx.fillStyle='rgba(5,1,15,0.7)'; ctx.fillRect(0,H-34,W,34);
-  ctx.textAlign='center'; ctx.font='700 '+G.TEXT.hint+'px system-ui,sans-serif';
-  ctx.fillStyle='rgba(255,255,255,0.5)';
-  ctx.fillText('drag to explore the tunnel · tap a level',W/2,H-17);
-  ctx.textAlign='right'; ctx.fillStyle='rgba(255,255,255,0.3)';
-  ctx.fillText('PROTOTYPE v0.1',W-12,H-17);
+  ctx.font='700 '+G.TEXT.hint+'px system-ui,sans-serif';
+  ctx.fillStyle='rgba(255,255,255,0.4)';
+  ctx.fillText('drag to wander · tap a level',12,H-16);
+  ctx.textAlign='right'; ctx.fillStyle='rgba(255,255,255,0.25)';
+  ctx.fillText('PROTOTYPE v0.2',W-12,H-16);
   if(toastT>0){
-    ctx.font='800 13px system-ui,sans-serif';
-    const tw=ctx.measureText(toast).width+28;
-    ctx.fillStyle='rgba(5,1,15,'+Math.min(0.92,toastT)+')';
-    ctx.beginPath();
-    if(ctx.roundRect) ctx.roundRect(W/2-tw/2,H-78,tw,30,15); else ctx.rect(W/2-tw/2,H-78,tw,30);
-    ctx.fill();
-    ctx.fillStyle='rgba(255,255,255,'+Math.min(1,toastT)+')';
-    ctx.fillText(toast,W/2,H-63);
+    ctx.textAlign='center';
+    ctx.font='900 15px system-ui,sans-serif';
+    const a=Math.min(1,toastT*1.6);
+    ctx.shadowColor='hsla('+toastHue+',100%,55%,'+a+')'; ctx.shadowBlur=14;
+    ctx.fillStyle='rgba(255,255,255,'+a+')';
+    ctx.fillText(toast,W/2,H-52-(2.6-toastT)*10);
+    ctx.shadowBlur=0;
   }
   requestAnimationFrame(frame);
 }
