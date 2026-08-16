@@ -79,7 +79,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.2.1 zones beta';
+const VERSION='Z0.2.2 zones beta';
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
 
@@ -1135,7 +1135,7 @@ function drawFinish(zz){
   ctx.shadowBlur=0;
 }
 /* ---------------- the level-clear screen ---------------- */
-let doneNextRect=null, doneMapRect=null;
+let doneNextRect=null, doneMapRect=null, doneRetryRect=null;
 function drawDone(){
   const q=levelQ; if(!q) return;
   ctx.fillStyle=`rgba(5,1,15,${clamp(doneT*2,0,0.6)})`; fillFrame();
@@ -1164,14 +1164,18 @@ function drawDone(){
     ctx.fillText('ZONE '+q.n+' SKIPPED — WELCOME TO ZONE '+(q.n+1), CX, CY+2*SC); }
   if(doneT>0.35){
     const nextZone = q.x2 || q.k===7;
-    doneNextRect=pillBtn(CX, CY+64*SC, Math.min(250*uiS(),W-32), 48*uiS(),
+    const bw3=Math.min(250*uiS(),W-32);
+    doneNextRect=pillBtn(CX, CY+64*SC, bw3, 48*uiS(),
       nextZone?'ONWARD TO ZONE '+(q.n+1):'NEXT LEVEL', 130, false);
-    doneMapRect=pillBtn(CX, CY+64*SC+58*uiS(), Math.min(180*uiS(),W-32), 40*uiS(), 'ZONE MAP', 260, false);
-  } else { doneNextRect=null; doneMapRect=null; }
+    doneRetryRect=pillBtn(CX-bw3/4-4, CY+64*SC+56*uiS(), bw3/2-8, 40*uiS(),
+      lvlStars<3?'RETRY ★':'RETRY', 48, false);
+    doneMapRect=pillBtn(CX+bw3/4+4, CY+64*SC+56*uiS(), bw3/2-8, 40*uiS(), 'ZONE MAP', 260, false);
+  } else { doneNextRect=null; doneMapRect=null; doneRetryRect=null; }
 }
 function doneTap(x,y){
   const inR=r=> r&&x>=r[0]&&x<=r[0]+r[2]&&y>=r[1]&&y<=r[1]+r[3];
   const q=levelQ;
+  if(inR(doneRetryRect)){ startLevel(q.n, q.k, q.x2); return; }
   if(inR(doneMapRect)){ exitToMap(); return; }
   if(inR(doneNextRect) || doneT>0.6){
     if(q.x2 || q.k===7){ exitToMap(); }
