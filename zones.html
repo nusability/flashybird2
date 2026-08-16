@@ -79,7 +79,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.3.1 zones beta';
+const VERSION='Z0.3.2 zones beta';
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
 
@@ -1083,7 +1083,6 @@ function startLevel(n,k,x2){
   seedStr=levelQ.seed;
   pace=null; paceBeat=true;   // tunnel PB is a deep-tunnel concept — levels use stars
   reset();
-  levelQ.traits.forEach((tr,i)=>pop(ZTRAITS[tr].name+' — '+ZTRAITS[tr].desc,CX,CY-150*SC-i*36*SC,(300+i*40)%360,0.95));
 }
 function levelDone(){
   score=Math.floor(scoreF);
