@@ -79,7 +79,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.2.2 zones beta';
+const VERSION='Z0.2.3 zones beta';
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
 
@@ -910,7 +910,7 @@ function die(dsave){
   if(score>best){ best=score; }
   save();
   // this run becomes the PB on this seed if it's your best
-  if(score>0 && (!pace || score>pace.score)){
+  if(!levelQ && score>0 && (!pace || score>pace.score)){
     pace={v:2,score,d:Math.round(dist),y:Math.round(bird.y)};
     try{ localStorage.setItem('fb_pace_'+seedStr, JSON.stringify(pace)); }catch(e){}
     pop('TUNNEL PB!',CX,CY+150*SC,190,1.1);
@@ -1082,6 +1082,7 @@ function startLevel(n,k,x2){
     seed: 'zone'+n+'-'+k+(x2?'-x2':'') };
   if(prevSeed===null) prevSeed=seedStr;
   seedStr=levelQ.seed;
+  pace=null; paceBeat=true;   // tunnel PB is a deep-tunnel concept — levels use stars
   reset();
   levelQ.traits.forEach((tr,i)=>pop(ZTRAITS[tr].name+'!',CX,CY-150*SC-i*34*SC,(300+i*40)%360,1.25));
 }
@@ -1103,6 +1104,9 @@ function levelDone(){
 function exitToMap(){
   levelQ=null; lvlStat=null;
   if(prevSeed!==null){ seedStr=prevSeed; prevSeed=null; }
+  try{ pace=JSON.parse(localStorage.getItem('fb_pace_'+seedStr) ?? 'null'); }catch(e){ pace=null; }
+  if(pace && pace.v!==1 && pace.v!==2) pace=null;
+  paceBeat=false;
   state='map'; mpSnapCur();
 }
 
@@ -3721,6 +3725,7 @@ function loop(ms){
 requestAnimationFrame(loop);
 
 /* zones app boots on the map */
+try{ for(const k of Object.keys(localStorage)) if(k.startsWith('fb_pace_zone')) localStorage.removeItem(k); }catch(e){}
 state='map'; mpSnapCur();
 </script>
 </body>
