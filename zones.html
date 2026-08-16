@@ -79,7 +79,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.4 zones beta';
+const VERSION='Z0.4.1 zones beta';
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
 
@@ -2523,6 +2523,7 @@ function drawBird(surfing,starred){
   }
   ctx.save();
   ctx.translate(bx,by);
+  if(zTrait('topsy')) ctx.scale(1,-1);   // gravity is flipped — so is the bird
   const bodyH = starred ? (t*400)%360 : surfing ? 210 : 45;
   const bodySat = surfing ? 20 : 100;
   const bodyLum = surfing ? 82 : 58;
