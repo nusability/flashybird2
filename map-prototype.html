@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#05010f">
+<title>FLASHY BIRD — zone map prototype</title>
+<style>
+  html,body{margin:0;padding:0;background:#05010f;overflow:hidden;height:100%;touch-action:none;-webkit-user-select:none;user-select:none;overscroll-behavior:none}
+  canvas{display:block;position:fixed;inset:0;cursor:grab;touch-action:none}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+'use strict';
+/* ============ FLASHY BIRD — ZONE MAP PROTOTYPE v0.1 ============
+   Standalone sketch of the level-map view: a top-down tunnel winding
+   through themed zones, 7 level nodes each, a x2 skip gate, and the
+   only-current-and-previous-visible rule. Nothing here touches the game.
+   =============================================================== */
+
+/* ---------------- DESIGN GUIDELINES ----------------
+   This block is the contract a theme subagent works inside. A theme pack
+   may ONLY contribute: palettes (all color tokens below), motif drawing
+   functions, and name fragments. It may NOT change geometry, stroke
+   widths, node metrics, or port positions — that is what makes 1000
+   zones feel like one game. */
+const G = {
+  UNIT_W: 390,            // design-space width; canvas scales to fit
+  ZONE_H: 1300,           // one zone's height in design units
+  PORT_X: 0.5,            // the tunnel enters & exits EVERY zone at center-x
+  AMP: 105,               // serpentine swing of the path around center
+  PATH: { glowW: 30, edgeW: 22, innerW: 14, dashW: 2, dash: [10,12] },
+  NODE: { r: 23, ringW: 3.5, starR: 5.5, labelDy: 40 },
+  SKIP: { r: 19, lane: 354 },       // the x2 shortcut hugs the right edge
+  MOTIF: { strokeMin: 2, strokeMax: 4, sizeMin: 10, sizeMax: 54,
+           margin: 16, clearance: 78, perZone: 26 },
+  TEXT: { zone: 17, node: 12.5, hint: 11 },
+};
+
+/* ---------------- THEME PACKS ----------------
+   Each pack: name, 2+ palettes (permutable — the zone hash picks one),
+   and a motif() that draws one decoration at origin, size s, variant v.
+   Palettes carry every color token the renderer uses; nothing hardcoded. */
+const THEMES = {
+  sky: {
+    name: 'CALM SKY OF A BIRD PLANET',
+    palettes: [
+      { bg:['#0b2547','#1d4f86'], glow:'#7fd0ff', edge:'#0a1b33', inner:'#123a63',
+        dash:'rgba(190,230,255,0.5)', node:'#9fdcff', nodeDone:'#57d9a3',
+        lock:'#3f6288', accent:'#ffd977', text:'#eaf6ff' },
+      { bg:['#2a1136','#83372e'], glow:'#ffb36b', edge:'#220d20', inner:'#5c2531',
+        dash:'rgba(255,214,170,0.5)', node:'#ffcf9f', nodeDone:'#ffd977',
+        lock:'#6b4550', accent:'#ff8fb0', text:'#ffeede' },
+    ],
+    motif(ctx,s,v,t,P){
+      if(v<0.55){ // puffy cloud
+        ctx.fillStyle='rgba(255,255,255,0.16)';
+        ctx.beginPath();
+        ctx.arc(-s*0.4,0,s*0.32,0,7); ctx.arc(0,-s*0.14,s*0.42,0,7); ctx.arc(s*0.42,0,s*0.3,0,7);
+        ctx.arc(0,s*0.12,s*0.36,0,7); ctx.fill();
+      } else if(v<0.85){ // distant gliding bird
+        ctx.strokeStyle=P.text; ctx.globalAlpha=0.55; ctx.lineWidth=2.4; ctx.lineCap='round';
+        const f=Math.sin(t*3+s)*0.25;
+        ctx.beginPath(); ctx.moveTo(-s*0.4,0); ctx.quadraticCurveTo(-s*0.18,-s*(0.28+f),0,0);
+        ctx.quadraticCurveTo(s*0.18,-s*(0.28-f),s*0.4,0); ctx.stroke();
+      } else { // little sun
+        ctx.fillStyle=P.accent; ctx.globalAlpha=0.9;
+        ctx.beginPath(); ctx.arc(0,0,s*0.3,0,7); ctx.fill();
+        ctx.strokeStyle=P.accent; ctx.lineWidth=2;
+        for(let i=0;i<8;i++){ const a=i/8*Math.PI*2+t*0.2;
+          ctx.beginPath(); ctx.moveTo(Math.cos(a)*s*0.42,Math.sin(a)*s*0.42);
+          ctx.lineTo(Math.cos(a)*s*0.55,Math.sin(a)*s*0.55); ctx.stroke(); }
+      }
+    },
+  },
+  jungle: {
+    name: 'PSYCHEDELIC JUNGLE',
+    palettes: [
+      { bg:['#04170d','#0e3b17'], glow:'#7dff6e', edge:'#03110a', inner:'#14431f',
+        dash:'rgba(210,255,160,0.5)', node:'#c0ff6e', nodeDone:'#ffd977',
+        lock:'#2f5c3a', accent:'#ff5fd0', text:'#eaffe0' },
+      { bg:['#1c0530','#43104f'], glow:'#e86bff', edge:'#14031f', inner:'#3a1247',
+        dash:'rgba(255,190,255,0.5)', node:'#ff9ff5', nodeDone:'#7dff6e',
+        lock:'#5b3a68', accent:'#7dffc9', text:'#ffe8ff' },
+    ],
+    motif(ctx,s,v,t,P){
+      if(v<0.5){ // big swaying leaf
+        ctx.save(); ctx.rotate(Math.sin(t*1.4+s)*0.1+(v*4));
+        ctx.fillStyle=P.glow; ctx.globalAlpha=0.30;
+        ctx.beginPath(); ctx.moveTo(0,0);
+        ctx.quadraticCurveTo(s*0.55,-s*0.5,0,-s);
+        ctx.quadraticCurveTo(-s*0.55,-s*0.5,0,0); ctx.fill();
+        ctx.strokeStyle=P.glow; ctx.globalAlpha=0.5; ctx.lineWidth=2;
+        ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(0,-s); ctx.stroke(); ctx.restore();
+      } else if(v<0.8){ // spiral vine
+        ctx.strokeStyle=P.accent; ctx.globalAlpha=0.55; ctx.lineWidth=2.6; ctx.lineCap='round';
+        ctx.beginPath();
+        for(let i=0;i<=30;i++){ const a=i/30*4.7+t*0.3, r=s*0.1+i/30*s*0.42;
+          const x=Math.cos(a)*r, y=Math.sin(a)*r; i?ctx.lineTo(x,y):ctx.moveTo(x,y); }
+        ctx.stroke();
+      } else { // eye flower — the psychedelic part
+        ctx.fillStyle=P.accent; ctx.globalAlpha=0.85;
+        for(let i=0;i<6;i++){ const a=i/6*Math.PI*2+t*0.35;
+          ctx.beginPath(); ctx.ellipse(Math.cos(a)*s*0.3,Math.sin(a)*s*0.3,s*0.24,s*0.12,a,0,7); ctx.fill(); }
+        ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(0,0,s*0.17,0,7); ctx.fill();
+        ctx.fillStyle='#111'; ctx.beginPath();
+        ctx.arc(Math.sin(t*1.2)*s*0.05,0,s*0.08,0,7); ctx.fill();
+      }
+    },
+  },
+  fishbirds: {
+    name: 'FLYING FISH & DIVING BIRDS',
+    palettes: [
+      { bg:['#02182b','#065069'], glow:'#4fe8d9', edge:'#021320', inner:'#0a4152',
+        dash:'rgba(170,255,240,0.5)', node:'#7ff2e2', nodeDone:'#ffd977',
+        lock:'#2b5f6b', accent:'#ffa64f', text:'#e2fffa' },
+      { bg:['#0a0a33','#232b7a'], glow:'#8fa1ff', edge:'#070726', inner:'#1d2361',
+        dash:'rgba(200,210,255,0.5)', node:'#aab7ff', nodeDone:'#4fe8d9',
+        lock:'#3c4380', accent:'#ff7fa8', text:'#e8ecff' },
+    ],
+    motif(ctx,s,v,t,P){
+      if(v<0.45){ // leaping fish arc
+        ctx.save(); ctx.rotate(-0.5+Math.sin(t*2+s)*0.12);
+        ctx.fillStyle=P.accent; ctx.globalAlpha=0.8;
+        ctx.beginPath(); ctx.ellipse(0,0,s*0.4,s*0.16,0,0,7); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(s*0.36,0); ctx.lineTo(s*0.6,-s*0.16); ctx.lineTo(s*0.6,s*0.16); ctx.closePath(); ctx.fill();
+        ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(-s*0.26,-s*0.03,s*0.045,0,7); ctx.fill();
+        ctx.restore();
+      } else if(v<0.75){ // bubbles
+        ctx.strokeStyle=P.glow; ctx.globalAlpha=0.5; ctx.lineWidth=2;
+        const b=(t*14+s*7)%40;
+        ctx.beginPath(); ctx.arc(0,-b*0.4,s*0.13,0,7); ctx.stroke();
+        ctx.beginPath(); ctx.arc(s*0.2,s*0.3-b*0.3,s*0.09,0,7); ctx.stroke();
+        ctx.beginPath(); ctx.arc(-s*0.22,s*0.1-b*0.35,s*0.07,0,7); ctx.stroke();
+      } else { // diving bird, beak-first
+        ctx.save(); ctx.rotate(2.2+Math.sin(t*1.5+s)*0.08);
+        ctx.fillStyle=P.text; ctx.globalAlpha=0.7;
+        ctx.beginPath(); ctx.ellipse(0,0,s*0.34,s*0.13,0,0,7); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(s*0.3,0); ctx.lineTo(s*0.52,0); ctx.lineTo(s*0.3,s*0.08); ctx.closePath(); ctx.fill();
+        const f=Math.sin(t*9+s)*0.4;
+        ctx.beginPath(); ctx.ellipse(-s*0.05,-s*0.1,s*0.2,s*0.08,-0.7-f,0,7); ctx.fill();
+        ctx.restore();
+      }
+    },
+  },
+  boneyard: {
+    name: 'SWARM OF BIRD SKELETONS',
+    palettes: [
+      { bg:['#120b1c','#2b1e3d'], glow:'#cfc4ff', edge:'#0c0714', inner:'#241a33',
+        dash:'rgba(230,220,255,0.45)', node:'#efe8ff', nodeDone:'#8effc2',
+        lock:'#4a3d63', accent:'#f4f0e0', text:'#f1ecff' },
+      { bg:['#1a0c0c','#3d1c14'], glow:'#ffc9a1', edge:'#140808', inner:'#331a12',
+        dash:'rgba(255,225,200,0.45)', node:'#ffe9d4', nodeDone:'#ffd977',
+        lock:'#5f4234', accent:'#fff3dd', text:'#ffefe2' },
+    ],
+    motif(ctx,s,v,t,P){
+      ctx.globalAlpha=0.75;
+      if(v<0.5){ // little bird skull with beak
+        ctx.fillStyle=P.accent;
+        ctx.beginPath(); ctx.arc(0,0,s*0.26,0,7); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(s*0.2,s*0.05); ctx.lineTo(s*0.48,s*0.14); ctx.lineTo(s*0.16,s*0.2); ctx.closePath(); ctx.fill();
+        ctx.fillStyle=P.bg[0];
+        ctx.beginPath(); ctx.arc(-s*0.06,-s*0.05,s*0.08,0,7); ctx.fill();
+        ctx.beginPath(); ctx.arc(s*0.12,-s*0.02,s*0.06,0,7); ctx.fill();
+      } else if(v<0.8){ // crossed wing-bones
+        ctx.strokeStyle=P.accent; ctx.lineWidth=3; ctx.lineCap='round';
+        ctx.save(); ctx.rotate(v*6+Math.sin(t+s)*0.06);
+        for(const a of [0.6,-0.6]){ ctx.save(); ctx.rotate(a);
+          ctx.beginPath(); ctx.moveTo(-s*0.35,0); ctx.lineTo(s*0.35,0); ctx.stroke();
+          for(const e of [-1,1]){ ctx.beginPath(); ctx.arc(e*s*0.4,-s*0.05,s*0.07,0,7); ctx.stroke(); }
+          ctx.restore(); }
+        ctx.restore();
+      } else { // ghost flock silhouette
+        ctx.strokeStyle=P.glow; ctx.lineWidth=2; ctx.globalAlpha=0.4;
+        for(let i=0;i<3;i++){ const dx=(i-1)*s*0.36, dy=Math.abs(i-1)*s*0.2, f=Math.sin(t*4+i)*0.2;
+          ctx.beginPath(); ctx.moveTo(dx-s*0.16,dy); ctx.quadraticCurveTo(dx-s*0.07,dy-s*(0.14+f),dx,dy);
+          ctx.quadraticCurveTo(dx+s*0.07,dy-s*(0.14-f),dx+s*0.16,dy); ctx.stroke(); }
+      }
+    },
+  },
+};
+
+/* ---------------- fake progression state ----------------
+   Zones bottom-to-top. Visibility rule: previous zones visible (dimmed),
+   current bright, the NEXT zone a named silhouette, anything past that
+   hidden entirely. */
+const ZONES = [
+  { n: 11, theme:'sky',       pal:1, vis:'done',    stars:[3,2,3,2,3,3,2], skipUsed:false },
+  { n: 12, theme:'jungle',    pal:0, vis:'current', stars:[3,2,2,0,0,0,0], curLevel:4 },
+  { n: 13, theme:'fishbirds', pal:0, vis:'next' },
+  { n: 14, theme:'boneyard',  pal:0, vis:'hidden' },
+];
+
+/* ---------------- boilerplate ---------------- */
+const cv=document.getElementById('c'), ctx=cv.getContext('2d');
+let W=0,H=0,DPR=1,S=1,t=0;
+function resize(){
+  DPR=Math.min(window.devicePixelRatio||1,3);
+  W=window.innerWidth; H=window.innerHeight;
+  cv.width=W*DPR; cv.height=H*DPR;
+  cv.style.width=W+'px'; cv.style.height=H+'px';
+  S=W/G.UNIT_W;
+}
+window.addEventListener('resize',resize); resize();
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let x=Math.imul(a^a>>>15,1|a);x=x+Math.imul(x^x>>>7,61|x)^x;return((x^x>>>14)>>>0)/4294967296}}
+
+/* ---------------- path geometry ----------------
+   Serpentine through 7 node anchors; enters at PORT (bottom center) and
+   exits at PORT (top center) so consecutive zones ALWAYS join cleanly —
+   that is the whole "tunnel fits zone to zone" guideline in one rule. */
+function zoneAnchors(){
+  const cx=G.UNIT_W*G.PORT_X, pts=[[cx,G.ZONE_H+60]];
+  for(let k=1;k<=7;k++){
+    const y=G.ZONE_H-150-(k-1)*(G.ZONE_H-330)/6;
+    pts.push([cx+(k%2?-1:1)*G.AMP, y]);
+  }
+  pts.push([cx,-60]);
+  return pts;
+}
+const ANCH=zoneAnchors();
+function pathAt(u){ // rough interpolation along the anchor polyline for motif clearance
+  const seg=u*(ANCH.length-1), i=Math.min(ANCH.length-2,Math.floor(seg)), f=seg-i;
+  return [ANCH[i][0]+(ANCH[i+1][0]-ANCH[i][0])*f, ANCH[i][1]+(ANCH[i+1][1]-ANCH[i][1])*f];
+}
+function drawSpline(pts){
+  ctx.beginPath(); ctx.moveTo(pts[0][0],pts[0][1]);
+  for(let i=0;i<pts.length-1;i++){
+    const p0=pts[Math.max(0,i-1)], p1=pts[i], p2=pts[i+1], p3=pts[Math.min(pts.length-1,i+2)];
+    ctx.bezierCurveTo(p1[0]+(p2[0]-p0[0])/6, p1[1]+(p2[1]-p0[1])/6,
+                      p2[0]-(p3[0]-p1[0])/6, p2[1]-(p3[1]-p1[1])/6, p2[0],p2[1]);
+  }
+}
+
+/* motif scatter, seeded per zone, kept clear of the tunnel corridor */
+const scatterCache={};
+function scatter(zi){
+  if(scatterCache[zi]) return scatterCache[zi];
+  const rng=mulberry32(0xBEEF^zi*7919), out=[];
+  let guard=0;
+  while(out.length<G.MOTIF.perZone && guard++<400){
+    const x=G.MOTIF.margin+rng()*(G.UNIT_W-2*G.MOTIF.margin);
+    const y=60+rng()*(G.ZONE_H-120);
+    const [px]=pathAt(1-(y+60)/(G.ZONE_H+120));
+    if(Math.abs(x-px)<G.MOTIF.clearance) continue;
+    if(x>G.SKIP.lane-46 && x<G.SKIP.lane+46) continue;
+    out.push({x,y,s:G.MOTIF.sizeMin+rng()*(G.MOTIF.sizeMax-G.MOTIF.sizeMin),v:rng()});
+  }
+  scatterCache[zi]=out; return out;
+}
+
+/* ---------------- zone rendering ---------------- */
+function star(x,y,r,fill){
+  ctx.beginPath();
+  for(let i=0;i<10;i++){ const a=-Math.PI/2+i/10*Math.PI*2, rr=i%2?r*0.45:r;
+    ctx[i?'lineTo':'moveTo'](x+Math.cos(a)*rr,y+Math.sin(a)*rr); }
+  ctx.closePath(); ctx.fillStyle=fill; ctx.fill();
+}
+function drawBirdie(x,y,sz){
+  ctx.save(); ctx.translate(x,y+Math.sin(t*3)*3);
+  const f=Math.sin(t*8)*0.35;
+  ctx.fillStyle='#ffb23e';
+  ctx.beginPath(); ctx.ellipse(-sz*0.55,-sz*0.1,sz*0.5,sz*0.22,-0.5-f,0,7); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(sz*0.55,-sz*0.1,sz*0.5,sz*0.22,0.5+f,0,7); ctx.fill();
+  const bg=ctx.createRadialGradient(-sz*0.2,-sz*0.25,sz*0.1,0,0,sz*0.9);
+  bg.addColorStop(0,'#ffdf6e'); bg.addColorStop(1,'#e8920f');
+  ctx.fillStyle=bg; ctx.beginPath(); ctx.ellipse(0,0,sz*0.62,sz*0.68,0,0,7); ctx.fill();
+  ctx.fillStyle='#ffd23e'; ctx.beginPath(); ctx.arc(0,-sz*0.62,sz*0.34,0,7); ctx.fill();
+  ctx.fillStyle='#111'; ctx.beginPath(); ctx.arc(-sz*0.12,-sz*0.66,sz*0.06,0,7); ctx.fill();
+  ctx.beginPath(); ctx.arc(sz*0.12,-sz*0.66,sz*0.06,0,7); ctx.fill();
+  ctx.fillStyle='#ff8b30'; ctx.beginPath();
+  ctx.moveTo(-sz*0.07,-sz*0.55); ctx.lineTo(sz*0.07,-sz*0.55); ctx.lineTo(0,-sz*0.42); ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+function drawZone(z,zi){
+  const TH=THEMES[z.theme], P=TH.palettes[z.pal];
+  const bg=ctx.createLinearGradient(0,0,0,G.ZONE_H);
+  bg.addColorStop(0,P.bg[1]); bg.addColorStop(1,P.bg[0]);
+  ctx.fillStyle=bg; ctx.fillRect(0,-1,G.UNIT_W,G.ZONE_H+2);
+
+  for(const m of scatter(zi)){
+    ctx.save(); ctx.translate(m.x,m.y); TH.motif(ctx,m.s,m.v,t,P); ctx.restore();
+    ctx.globalAlpha=1;
+  }
+
+  /* the tunnel */
+  ctx.save();
+  ctx.lineCap='round'; ctx.lineJoin='round';
+  ctx.strokeStyle=P.glow; ctx.globalAlpha=0.20; ctx.lineWidth=G.PATH.glowW;
+  drawSpline(ANCH); ctx.stroke();
+  ctx.globalAlpha=1;
+  ctx.strokeStyle=P.edge; ctx.lineWidth=G.PATH.edgeW; drawSpline(ANCH); ctx.stroke();
+  ctx.strokeStyle=P.inner; ctx.lineWidth=G.PATH.innerW; drawSpline(ANCH); ctx.stroke();
+  ctx.strokeStyle=P.dash; ctx.lineWidth=G.PATH.dashW;
+  ctx.setLineDash(G.PATH.dash); ctx.lineDashOffset=-t*26;
+  drawSpline(ANCH); ctx.stroke(); ctx.setLineDash([]);
+  ctx.restore();
+
+  /* zone-boundary gate ring at the entry port (tunnel mouth) */
+  const cx=G.UNIT_W*G.PORT_X;
+  ctx.strokeStyle=P.glow; ctx.lineWidth=4;
+  ctx.beginPath(); ctx.ellipse(cx,G.ZONE_H,34,12,0,0,7); ctx.stroke();
+  ctx.globalAlpha=0.4; ctx.beginPath(); ctx.ellipse(cx,G.ZONE_H,46,17,0,0,7); ctx.stroke();
+  ctx.globalAlpha=1;
+
+  /* skip lane: dashed bypass from node 1 up the right edge to the exit */
+  const n1=ANCH[1], skipY=(ANCH[3][1]+ANCH[4][1])/2;
+  ctx.strokeStyle=P.accent; ctx.globalAlpha=0.65; ctx.lineWidth=3;
+  ctx.setLineDash([5,9]); ctx.lineDashOffset=-t*14;
+  drawSpline([[n1[0],n1[1]],[G.SKIP.lane,ANCH[2][1]],[G.SKIP.lane,skipY],[G.SKIP.lane,ANCH[6][1]],[cx,-60]]);
+  ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha=1;
+  /* the x2 gate diamond */
+  ctx.save(); ctx.translate(G.SKIP.lane,skipY); ctx.rotate(Math.PI/4);
+  ctx.fillStyle=P.bg[0]; ctx.strokeStyle=P.accent; ctx.lineWidth=3;
+  const sr=G.SKIP.r;
+  ctx.beginPath(); ctx.rect(-sr,-sr,sr*2,sr*2); ctx.fill(); ctx.stroke();
+  ctx.restore();
+  ctx.fillStyle=P.accent; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.font='900 '+G.TEXT.node+'px system-ui,sans-serif';
+  ctx.fillText('×2',G.SKIP.lane,skipY);
+  ctx.font='700 '+(G.TEXT.node-3)+'px system-ui,sans-serif';
+  ctx.fillText('SKIP',G.SKIP.lane,skipY+sr+11);
+
+  /* level nodes */
+  for(let k=1;k<=7;k++){
+    const [x,y]=ANCH[k];
+    const done=z.stars && z.stars[k-1]>0;
+    const isCur=z.vis==='current' && z.curLevel===k;
+    const r=G.NODE.r*(isCur?1+Math.sin(t*4)*0.06:1);
+    ctx.fillStyle=P.bg[0];
+    ctx.strokeStyle=done?P.nodeDone:isCur?P.node:P.lock;
+    ctx.lineWidth=G.NODE.ringW;
+    if(isCur){ ctx.shadowColor=P.node; ctx.shadowBlur=18; }
+    ctx.beginPath(); ctx.arc(x,y,r,0,7); ctx.fill(); ctx.stroke();
+    ctx.shadowBlur=0;
+    ctx.fillStyle=done?P.nodeDone:isCur?P.text:P.lock;
+    ctx.font='900 '+G.TEXT.node+'px system-ui,sans-serif';
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(String(k),x,y+0.5);
+    if(done){ // earned stars above the node
+      const n=z.stars[k-1];
+      for(let s2=0;s2<3;s2++)
+        star(x+(s2-1)*13, y-r-13+(s2===1?-3:0), G.NODE.starR, s2<n?P.nodeDone:'rgba(255,255,255,0.15)');
+    }
+    if(!done && !isCur && z.vis==='current'){ // padlock dot on locked nodes
+      ctx.fillStyle=P.lock; ctx.beginPath(); ctx.arc(x,y-r-8,3,0,7); ctx.fill();
+    }
+    if(isCur) drawBirdie(x-42,y-26,15);
+  }
+
+  /* zone name plate near the entry — only where the veil rules allow it
+     (the 'next' treatment re-draws its own tease, 'hidden' shows nothing) */
+  if(z.vis==='done'||z.vis==='current'){
+    ctx.textAlign='center';
+    ctx.font='900 '+G.TEXT.zone+'px system-ui,sans-serif';
+    ctx.fillStyle=P.text; ctx.shadowColor=P.glow; ctx.shadowBlur=12;
+    ctx.fillText('ZONE '+z.n,cx,G.ZONE_H-52);
+    ctx.shadowBlur=0;
+    ctx.font='800 '+(G.TEXT.zone-5)+'px system-ui,sans-serif';
+    ctx.fillStyle=P.glow;
+    ctx.fillText(TH.name,cx,G.ZONE_H-30);
+  }
+
+  /* visibility treatments */
+  if(z.vis==='done'){
+    ctx.fillStyle='rgba(5,1,15,0.35)'; ctx.fillRect(0,-1,G.UNIT_W,G.ZONE_H+2);
+  }
+  if(z.vis==='next'){ // named silhouette: shape and name tease through
+    ctx.fillStyle='rgba(5,1,15,0.78)'; ctx.fillRect(0,-1,G.UNIT_W,G.ZONE_H+2);
+    ctx.font='900 '+G.TEXT.zone+'px system-ui,sans-serif';
+    ctx.fillStyle='rgba(255,255,255,0.75)';
+    ctx.fillText('ZONE '+z.n,cx,G.ZONE_H-52);
+    ctx.font='800 '+(G.TEXT.zone-5)+'px system-ui,sans-serif';
+    ctx.fillStyle=P.glow; ctx.globalAlpha=0.8;
+    ctx.fillText(TH.name,cx,G.ZONE_H-30); ctx.globalAlpha=1;
+    ctx.font='700 12px system-ui,sans-serif';
+    ctx.fillStyle='rgba(255,255,255,0.4)';
+    ctx.fillText('clear zone '+(z.n-1)+' to enter',cx,G.ZONE_H-10);
+  }
+  if(z.vis==='hidden'){ // beyond the veil: pure mystery
+    ctx.fillStyle='rgba(5,1,15,0.94)'; ctx.fillRect(0,-1,G.UNIT_W,G.ZONE_H+2);
+    ctx.font='900 44px system-ui,sans-serif';
+    ctx.fillStyle='rgba(255,255,255,'+(0.2+Math.sin(t*2)*0.08)+')';
+    ctx.fillText('?',cx,G.ZONE_H/2);
+  }
+}
+
+/* ---------------- scrolling & input ---------------- */
+const worldH=ZONES.length*G.ZONE_H;
+let camY=0, dragging=false, dragY0=0, camY0=0, moved=false, vel=0, lastY=0, toast='', toastT=0;
+function clampCam(){ camY=Math.max(0,Math.min(worldH-H/S,camY)); }
+camY=worldH-2*G.ZONE_H+ (G.ZONE_H-innerHeight/S)*0.6; clampCam(); // start on the current zone
+window.addEventListener('pointerdown',e=>{ dragging=true; moved=false; dragY0=e.clientY; camY0=camY; lastY=e.clientY; vel=0; });
+window.addEventListener('pointermove',e=>{
+  if(!dragging) return;
+  if(Math.abs(e.clientY-dragY0)>6) moved=true;
+  camY=camY0+(e.clientY-dragY0)/S; clampCam();
+  vel=(e.clientY-lastY)/S; lastY=e.clientY;
+});
+window.addEventListener('pointerup',e=>{
+  if(dragging && !moved) tap(e.clientX/S, e.clientY/S+camY);
+  dragging=false;
+});
+window.addEventListener('pointercancel',()=>dragging=false);
+window.addEventListener('wheel',e=>{ camY+=e.deltaY/S; clampCam(); },{passive:true});
+function tap(ux,wy){
+  const zi=ZONES.length-1-Math.floor(wy/G.ZONE_H);
+  if(zi<0||zi>=ZONES.length) return;
+  const z=ZONES[zi], ly=wy-(ZONES.length-1-zi)*G.ZONE_H;
+  if(z.vis==='next'||z.vis==='hidden'){ say('the tunnel ahead is still dark…'); return; }
+  const skipY=(ANCH[3][1]+ANCH[4][1])/2;
+  if(Math.hypot(ux-G.SKIP.lane,ly-skipY)<34){
+    say('SKIP GATE — beat one level at ×2 difficulty to jump to zone '+(z.n+1)); return;
+  }
+  for(let k=1;k<=7;k++){
+    const [x,y]=ANCH[k];
+    if(Math.hypot(ux-x,ly-y)<G.NODE.r+10){
+      if(z.vis==='done') say('replay level '+z.n+'-'+k+' for missing stars');
+      else if(z.curLevel===k) say('would launch level '+z.n+'-'+k);
+      else if(z.stars&&z.stars[k-1]>0) say('replay level '+z.n+'-'+k);
+      else say('locked — clear level '+z.n+'-'+(z.curLevel)+' first');
+      return;
+    }
+  }
+}
+function say(m){ toast=m; toastT=3; }
+
+/* ---------------- frame loop ---------------- */
+let last=performance.now();
+function frame(now){
+  const dt=Math.min(0.05,(now-last)/1000); last=now; t+=dt;
+  if(!dragging && Math.abs(vel)>1){ camY+=vel; vel*=0.93; clampCam(); }
+  toastT=Math.max(0,toastT-dt);
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.clearRect(0,0,W,H);
+  ctx.save(); ctx.scale(S,S);
+  for(let zi=0;zi<ZONES.length;zi++){
+    const top=(ZONES.length-1-zi)*G.ZONE_H;
+    if(top+G.ZONE_H<camY || top>camY+H/S) continue;
+    ctx.save(); ctx.translate(0,top-camY);
+    drawZone(ZONES[zi],zi);
+    ctx.restore();
+  }
+  ctx.restore();
+
+  /* fixed chrome */
+  const cur=ZONES.find(z=>z.vis==='current');
+  ctx.fillStyle='rgba(5,1,15,0.88)'; ctx.fillRect(0,0,W,44);
+  ctx.textAlign='left'; ctx.textBaseline='middle';
+  ctx.font='900 14px system-ui,sans-serif'; ctx.fillStyle='#fff';
+  ctx.fillText('ZONE '+cur.n+' · '+THEMES[cur.theme].name,14,22);
+  ctx.fillStyle='rgba(5,1,15,0.7)'; ctx.fillRect(0,H-34,W,34);
+  ctx.textAlign='center'; ctx.font='700 '+G.TEXT.hint+'px system-ui,sans-serif';
+  ctx.fillStyle='rgba(255,255,255,0.5)';
+  ctx.fillText('drag to explore the tunnel · tap a level',W/2,H-17);
+  ctx.textAlign='right'; ctx.fillStyle='rgba(255,255,255,0.3)';
+  ctx.fillText('PROTOTYPE v0.1',W-12,H-17);
+  if(toastT>0){
+    ctx.font='800 13px system-ui,sans-serif';
+    const tw=ctx.measureText(toast).width+28;
+    ctx.fillStyle='rgba(5,1,15,'+Math.min(0.92,toastT)+')';
+    ctx.beginPath();
+    if(ctx.roundRect) ctx.roundRect(W/2-tw/2,H-78,tw,30,15); else ctx.rect(W/2-tw/2,H-78,tw,30);
+    ctx.fill();
+    ctx.fillStyle='rgba(255,255,255,'+Math.min(1,toastT)+')';
+    ctx.fillText(toast,W/2,H-63);
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
