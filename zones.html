@@ -84,7 +84,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.5.3 zones beta';
+const VERSION='Z0.6 zones beta';
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
 
@@ -1360,6 +1360,7 @@ function mpTap(ux,wy){
   { // screen-space buttons first
     const sx=ux*mpS0(), sy=(wy-mpCam)*mpS0();
     const hit=r=>r&&sx>=r[0]&&sx<=r[0]+r[2]&&sy>=r[1]&&sy<=r[1]+r[3];
+    if(hit(updRect)){ doUpdate(); return; }
     if(hit(muteRect)){ muted=!muted; save(); applyMute(); return; }
     if(hit(nestRect)){ initAudio(); openShop(); return; }
     if(hit(deepRect)){ state='title'; return; }
@@ -1532,6 +1533,8 @@ function mpDraw(){
   ctx.restore();
   /* chrome (screen space) */
   const US=uiS(), S3=52*US;
+  if(updReady){ updRect=pillBtn(W/2, 26+14*US, 190*US, 38*US, '⬆ UPDATE '+updReady, 130, true); }
+  else updRect=null;
   muteRect=cornerBtn(12+S3/2, 12+S3/2, S3, muted?'MUTED':'SOUND', 190, false, soundIcon);
   nestRect=cornerBtn(W-12-S3/2, 12+S3/2, S3, 'NEST', (hue+120)%360, nestAlert(), nestIcon, String(bugs));
   deepRect=pillBtn(14+66*US, H-40*US, 132*US, 40*US, 'DEEP TUNNEL', 210, false);
@@ -1541,7 +1544,7 @@ function mpDraw(){
   } else mpTopRect=null;
   ctx.textAlign='right'; ctx.textBaseline='middle';
   ctx.font='700 10px system-ui,sans-serif'; ctx.fillStyle='rgba(255,255,255,0.45)';
-  ctx.fillText('★ '+ZP.total+'   ·   swipe for zones · tap a level',W-12,H-20);
+  ctx.fillText('v'+VERSION+'   ·   ★ '+ZP.total+'   ·   swipe · tap a level',W-12,H-20);
   mpDrawBrief();
 }
 function mpPath(mz,dist2){
@@ -3427,9 +3430,8 @@ function shopTap(x,y){
         try{
           const u=new URL(location.href);
           if(sk.id==='truck'){
-            // cache-busting reload, no confirmation — it's harmless
-            u.searchParams.set('reload', Math.random().toString(36).slice(2,10));
-            location.replace(u.href);
+            // deep refresh: clear caches, update the worker, reload fresh
+            doUpdate();
             return;
           }
           const dbg=SKIN_DEBUG[sk.id];
@@ -3820,6 +3822,30 @@ function loop(ms){
 }
 requestAnimationFrame(loop);
 
+/* update flow: probe the origin (cache-bypassed) for a newer build; offer a
+   one-tap deep refresh that clears every cache and reloads. iOS standalone
+   apps resume without navigating, so this runs on launch AND foreground. */
+let updReady=null, updRect=null;
+async function checkUpdate(){
+  try{
+    const r=await fetch('zones.html?v='+Math.random().toString(36).slice(2),{cache:'no-store'});
+    if(!r.ok) return;
+    const m=(await r.text()).match(/VERSION='([^']+)'/);
+    if(m && m[1]!==VERSION) updReady=m[1];
+  }catch(e){}
+}
+async function doUpdate(){
+  try{ const ks=await caches.keys(); await Promise.all(ks.map(k=>caches.delete(k))); }catch(e){}
+  try{ const reg=await navigator.serviceWorker.getRegistration(); if(reg) await reg.update(); }catch(e){}
+  try{
+    const u=new URL(location.href);
+    u.searchParams.set('reload',Math.random().toString(36).slice(2,10));
+    location.replace(u.href);
+  }catch(e){ location.reload(); }
+}
+checkUpdate();
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden) checkUpdate(); });
+window.addEventListener('pageshow',()=>checkUpdate());
 /* offline: the service worker caches the shell; network-first keeps it fresh */
 if('serviceWorker' in navigator){ try{ navigator.serviceWorker.register('sw.js').catch(()=>{}); }catch(e){} }
 /* zones app boots on the map */
