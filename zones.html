@@ -29,10 +29,18 @@
   :root{--sat:env(safe-area-inset-top,0px);--sab:env(safe-area-inset-bottom,0px)}
   html,body{margin:0;padding:0;background:#05010f;overflow:hidden;height:100%;touch-action:none;-webkit-user-select:none;user-select:none;overscroll-behavior:none}
   canvas{display:block;position:fixed;inset:0;cursor:pointer;touch-action:none}
+  /* DOM-rendered twin of the canvas sharpness probe: 1-device-px checkers
+     via CSS. Canvas probe mush + this crisp = the canvas layer is stuck at
+     a low raster scale; BOTH mush = the whole page's scale is stuck. */
+  #dp{position:fixed;right:172px;bottom:calc(env(safe-area-inset-bottom,0px) + 6px);
+      width:8px;height:8px;pointer-events:none;z-index:5;
+      background:repeating-conic-gradient(#000 0 25%,#fff 0 50%);
+      background-size:0.6667px 0.6667px}
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
+<div id="dp"></div>
 <script>
 /* zones framework: theme registry + FX animation toolkit + map geometry.
    Shared contract with theme-lab.html — see its THEME PACK CONTRACT block. */
@@ -86,9 +94,9 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.6.5 zones beta';
-const cv = document.getElementById('c');
-const ctx = cv.getContext('2d');
+const VERSION='Z0.6.6 zones beta';
+let cv = document.getElementById('c');
+let ctx = cv.getContext('2d');
 
 let W=0,H=0,CX=0,CY=0,DPR=1,SC=1,Fp=560,SAFE_T=0,SAFE_B=0;
 // certain canvas backing-store sizes render blurry on iOS (the GPU process
@@ -135,16 +143,42 @@ function resMatch(){
   return Math.abs(cv.width-s[0]*dpr)<2 && Math.abs(cv.height-s[1]*dpr)<2;
 }
 function ensureRes(){ if(!resMatch()) resize(); }
-// resume/relaunch recreates the backing store outright: iOS can evict a
-// backgrounded canvas's GPU store and bring it back soft with the SAME
-// reported dimensions, which the mismatch check cannot see.
-window.addEventListener('pageshow',()=>resize());
+// The compositor assigns a layer its raster scale when the LAYER is born.
+// A launch that races iOS's window-geometry settle can freeze the page at
+// a reduced scale that survives backing-store rebuilds and even CSS
+// resizes of the same element (proven live: the 1px nudge re-rastered
+// and stayed soft). Two levers actually reset it: re-computing the page
+// scale (viewport meta jiggle) and replacing the canvas element so it
+// gets a brand-new layer.
+let rbN=0;
+const VPMETA=document.querySelector('meta[name=viewport]');
+const VPCONTENT=VPMETA?VPMETA.getAttribute('content'):'';
+function vpKick(){
+  if(!VPMETA) return;
+  VPMETA.setAttribute('content',
+    VPCONTENT.replace('initial-scale=1','initial-scale=1.02')
+             .replace('maximum-scale=1','maximum-scale=1.02'));
+  requestAnimationFrame(()=>VPMETA.setAttribute('content',VPCONTENT));
+}
+function rebuildCanvas(){
+  rbN++;
+  const n=document.createElement('canvas');
+  n.id='c';
+  cv.replaceWith(n);
+  cv=n; ctx=n.getContext('2d');
+  resize();
+  vpKick();
+}
+window.addEventListener('pageshow',()=>rebuildCanvas());
 window.addEventListener('focus',ensureRes);
-document.addEventListener('visibilitychange',()=>{ if(!document.hidden) resize(); });
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden) rebuildCanvas(); });
 window.addEventListener('orientationchange',()=>setTimeout(ensureRes,80));
 if(window.visualViewport) window.visualViewport.addEventListener('resize',ensureRes);
 let resGuardN=24;
 (function resGuard(){ ensureRes(); if(resGuardN-->0) setTimeout(resGuard,250); })();
+// launch kicks after iOS has had time to settle the window geometry
+setTimeout(rebuildCanvas,600);
+setTimeout(rebuildCanvas,1800);
 setTimeout(()=>syncUrl(),0);
 
 /* ---------- deterministic randomness ----------
@@ -1619,6 +1653,7 @@ function mpDraw(){
     +(vv2?' vv'+Math.round(vv2.width)+'×'+Math.round(vv2.height):'')
     +' s'+screen.width+'×'+screen.height
     +' @'+(window.devicePixelRatio||1)+' cv'+cv.width+'×'+cv.height
+    +(vv2&&vv2.scale!==1?' z'+vv2.scale.toFixed(2):'')+' rb'+rbN
     +(swOff?' SW:OFF':' SW:on')+(NUDGE?' N:1':''),W-12,H-8-SAFE_B);
   // sharpness probe: a checkerboard of SINGLE DEVICE PIXELS. Crisp fine
   // grain = native rendering; uniform grey = the compositor is downscaling.
@@ -3950,7 +3985,7 @@ function toggleNudge(){
                : 'Canvas nudge is ON. Restore full-height canvas?';
   if(!confirm(msg)) return;
   try{ localStorage.setItem('fb_nudge', on?'1':'0'); }catch(e){}
-  NUDGE=on; resize();
+  NUDGE=on; rebuildCanvas();
 }
 /* zones app boots on the map */
 try{ for(const k of Object.keys(localStorage)) if(k.startsWith('fb_pace_zone')) localStorage.removeItem(k); }catch(e){}
