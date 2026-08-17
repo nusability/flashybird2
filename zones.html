@@ -84,7 +84,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.5.2 zones beta';
+const VERSION='Z0.5.3 zones beta';
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
 
@@ -102,6 +102,23 @@ function resize(){
   Fp = 560*SC;
 }
 window.addEventListener('resize', resize); resize();
+// iOS resolution watchdog: on reload (especially standalone/home-screen)
+// Safari can report stale dimensions at script time and settle later with
+// NO resize event — leaving the canvas backing store mismatched and the
+// whole game upscaled blurry. Re-check on every geometry signal plus a
+// short poll after launch; only re-run resize() on a real mismatch.
+function resMatch(){
+  const dpr=Math.min(window.devicePixelRatio||1,3);
+  return Math.abs(cv.width-window.innerWidth*dpr)<2 && Math.abs(cv.height-window.innerHeight*dpr)<2;
+}
+function ensureRes(){ if(!resMatch()) resize(); }
+window.addEventListener('pageshow',ensureRes);
+window.addEventListener('focus',ensureRes);
+document.addEventListener('visibilitychange',ensureRes);
+window.addEventListener('orientationchange',()=>setTimeout(ensureRes,80));
+if(window.visualViewport) window.visualViewport.addEventListener('resize',ensureRes);
+let resGuardN=24;
+(function resGuard(){ ensureRes(); if(resGuardN-->0) setTimeout(resGuard,250); })();
 setTimeout(()=>syncUrl(),0);
 
 /* ---------- deterministic randomness ----------
