@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#05010f">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
@@ -84,7 +84,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.6.3 zones beta';
+const VERSION='Z0.6.4 zones beta';
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
 
@@ -1401,6 +1401,13 @@ function mpTap(ux,wy){
   { // screen-space buttons first
     const sx=ux*mpS0(), sy=(wy-mpCam)*mpS0();
     const hit=r=>r&&sx>=r[0]&&sx<=r[0]+r[2]&&sy>=r[1]&&sy<=r[1]+r[3];
+    if(sx>W-170 && sy>H-26){                      // 5 taps on the diag corner
+      const now2=performance.now();
+      diagTaps = now2-diagTapAt<1500 ? diagTaps+1 : 1;
+      diagTapAt=now2;
+      if(diagTaps>=5){ diagTaps=0; toggleSW(); }
+      return;
+    }
     if(hit(updRect)){ doUpdate(); return; }
     if(hit(muteRect)){ muted=!muted; save(); applyMute(); return; }
     if(hit(nestRect)){ initAudio(); openShop(); return; }
@@ -1591,7 +1598,17 @@ function mpDraw(){
   ctx.fillText('in'+innerWidth+'×'+innerHeight
     +(vv2?' vv'+Math.round(vv2.width)+'×'+Math.round(vv2.height):'')
     +' s'+screen.width+'×'+screen.height
-    +' @'+(window.devicePixelRatio||1)+' cv'+cv.width+'×'+cv.height,W-12,H-8);
+    +' @'+(window.devicePixelRatio||1)+' cv'+cv.width+'×'+cv.height
+    +(swOff?' SW:OFF':' SW:on'),W-12,H-8);
+  // sharpness probe: a checkerboard of SINGLE DEVICE PIXELS. Crisp fine
+  // grain = native rendering; uniform grey = the compositor is downscaling.
+  ctx.save(); ctx.setTransform(1,0,0,1,0,0);
+  const px0=cv.width-160, py0=cv.height-64;
+  for(let yy=0;yy<24;yy++) for(let xx=0;xx<24;xx++){
+    ctx.fillStyle=(xx+yy)%2?'#000':'#fff';
+    ctx.fillRect(px0+xx,py0+yy,1,1);
+  }
+  ctx.restore();
   mpDrawBrief();
 }
 function mpPath(mz,dist2){
@@ -1774,7 +1791,6 @@ function fireBtn(act){
   else if(act==='chal') claimChal();
 }
 window.addEventListener('pointerdown',e=>{
-  if(W>H){ e.preventDefault(); return; }   // rotate prompt owns the screen
   pressX=e.clientX; pressY=e.clientY; pressDown=true;
   pendBtn=null;
   if(state==='map'){ e.preventDefault(); initAudio(); mpDown(e); return; }
@@ -1861,7 +1877,6 @@ window.addEventListener('keyup',e=>{ if(e.key==='Shift') pedalOn=false; });
 // input runs on pointer events so no click handlers are lost.
 window.addEventListener('touchend',e=>{ initAudio(); if(e.cancelable) e.preventDefault(); },{passive:false});
 window.addEventListener('keydown',e=>{
-  if(W>H) return;
   if(e.key==='Shift' && state==='play' && (tier('pedal')>0||DBG.surfer)){ if(DBG.surfer&&!e.repeat) dbgSurf(); pedalOn=true; return; }
   if(e.repeat) return;
   if(e.code==='Escape' && state==='shop'){ closeShop(); return; }
@@ -1915,7 +1930,7 @@ function update(dt){
   // stars always move
   for(const s of stars){ s.z-=adv*0.85; if(s.z<BZ+8){ s.z+=FAR-BZ; s.x=rand(-260,260); s.y=rand(-260,260);} }
 
-  if(state==='play' && W<=H){
+  if(state==='play'){
     if(DBG.power) starT=Math.max(starT,1.5);   // ?debug=poweroverwhelming
     dist += adv;
     if(levelQ && !levelQ.warned && levelQ.len-dist<1500){
@@ -2355,7 +2370,6 @@ function render(){
   if(state==='shop') drawShop();
   if(state==='map') mpDraw();
   if(state==='done') drawDone();
-  if(W>H) drawRotate();
   if(spinning) ctx.restore();
 }
 
@@ -3897,7 +3911,19 @@ checkUpdate();
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden) checkUpdate(); });
 window.addEventListener('pageshow',()=>checkUpdate());
 /* offline: the service worker caches the shell; network-first keeps it fresh */
-if('serviceWorker' in navigator){ try{ navigator.serviceWorker.register('sw.js').catch(()=>{}); }catch(e){} }
+let swOff=false; try{ swOff=localStorage.getItem('fb_nosw')==='1'; }catch(e){}
+if('serviceWorker' in navigator && !swOff){ try{ navigator.serviceWorker.register('sw.js').catch(()=>{}); }catch(e){} }
+async function toggleSW(){
+  const turningOff=!swOff;
+  if(!confirm(turningOff?'Disable offline mode (service worker) and reload?':'Re-enable offline mode and reload?')) return;
+  try{ localStorage.setItem('fb_nosw',turningOff?'1':'0'); }catch(e){}
+  if(turningOff){
+    try{ const regs=await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map(r=>r.unregister())); }catch(e){}
+    try{ const ks=await caches.keys(); await Promise.all(ks.map(k=>caches.delete(k))); }catch(e){}
+  }
+  doUpdate();
+}
+let diagTaps=0, diagTapAt=0;
 /* zones app boots on the map */
 try{ for(const k of Object.keys(localStorage)) if(k.startsWith('fb_pace_zone')) localStorage.removeItem(k); }catch(e){}
 state='map'; mpSnapCur();
