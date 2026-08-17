@@ -29,10 +29,15 @@
   :root{--sat:env(safe-area-inset-top,0px);--sab:env(safe-area-inset-bottom,0px)}
   html,body{margin:0;padding:0;background:#05010f;overflow:hidden;height:100%;touch-action:none;-webkit-user-select:none;user-select:none;overscroll-behavior:none}
   canvas{display:block;position:fixed;inset:0;cursor:pointer;touch-action:none}
-  /* DOM-rendered twin of the canvas sharpness probe: 1-device-px checkers
-     via CSS. Canvas probe mush + this crisp = the canvas layer is stuck at
-     a low raster scale; BOTH mush = the whole page's scale is stuck. */
-  #dp{position:fixed;right:172px;bottom:calc(env(safe-area-inset-bottom,0px) + 6px);
+  /* invisible fixed-position yardstick: its laid-out box IS the true
+     paintable area (bottom inset included), which iOS's innerHeight and
+     visualViewport under-report in standalone full-bleed mode */
+  #vp{position:fixed;inset:0;visibility:hidden;pointer-events:none}
+  /* DOM-rendered twin of the canvas sharpness probe (diag mode only):
+     1-device-px checkers via CSS. Canvas probe mush + this crisp = the
+     canvas layer is stuck at a low raster scale; BOTH mush = the whole
+     page's scale is stuck. */
+  #dp{display:none;position:fixed;right:172px;bottom:calc(env(safe-area-inset-bottom,0px) + 6px);
       width:8px;height:8px;pointer-events:none;z-index:5;
       background:repeating-conic-gradient(#000 0 25%,#fff 0 50%);
       background-size:0.6667px 0.6667px}
@@ -40,6 +45,7 @@
 </head>
 <body>
 <canvas id="c"></canvas>
+<div id="vp"></div>
 <div id="dp"></div>
 <script>
 /* zones framework: theme registry + FX animation toolkit + map geometry.
@@ -94,24 +100,27 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.6.6 zones beta';
+const VERSION='Z0.7.0 zones beta';
 let cv = document.getElementById('c');
 let ctx = cv.getContext('2d');
 
 let W=0,H=0,CX=0,CY=0,DPR=1,SC=1,Fp=560,SAFE_T=0,SAFE_B=0;
-// certain canvas backing-store sizes render blurry on iOS (the GPU process
-// rasterizes them at reduced scale; webkit bug 242847 — resizing by ONE
-// pixel flips them crisp). fb_nudge shaves 1 CSS px off the canvas height
-// as a live A/B for that bug: 5 quick taps on the map's bottom-left corner.
-let NUDGE=false; try{ NUDGE=localStorage.getItem('fb_nudge')==='1'; }catch(e){}
-// iOS standalone can hand out stale, rotation-swapped innerWidth/Height
-// (seen live: 750x402 reported on a portrait phone). visualViewport tracks
-// the truth more reliably.
+// hidden diagnostics (footer metrics line + the two sharpness probes):
+// 5 quick taps on the map's bottom-right corner toggles them
+let DIAG=false; try{ DIAG=localStorage.getItem('fb_diag')==='1'; }catch(e){}
+// The paintable area is measured off the #vp yardstick (fixed inset:0):
+// in standalone full-bleed mode iOS under-reports innerHeight AND
+// visualViewport (812 on an 874pt screen — they exclude the status bar
+// band even when the view runs edge-to-edge), while a fixed element's
+// laid-out box always spans the real screen. visualViewport is only the
+// fallback for the first frames before layout.
 function vpSize(){
+  const r=document.getElementById('vp').getBoundingClientRect();
+  if(r.width>10 && r.height>10) return [Math.round(r.width),Math.round(r.height)];
   const vv=window.visualViewport;
   const w = (vv&&vv.width)  ? vv.width  : (document.documentElement.clientWidth ||window.innerWidth);
   const h = (vv&&vv.height) ? vv.height : (document.documentElement.clientHeight||window.innerHeight);
-  return [Math.round(w),Math.round(h)-(NUDGE?1:0)];
+  return [Math.round(w),Math.round(h)];
 }
 function resize(){
   // render at native density (3x on modern phones) so text and thin
@@ -1448,18 +1457,11 @@ function mpTap(ux,wy){
   { // screen-space buttons first
     const sx=ux*mpS0(), sy=(wy-mpCam)*mpS0();
     const hit=r=>r&&sx>=r[0]&&sx<=r[0]+r[2]&&sy>=r[1]&&sy<=r[1]+r[3];
-    if(sx>W-170 && sy>H-26-SAFE_B){               // 5 taps on the diag corner
+    if(sx>W-170 && sy>H-26-SAFE_B){    // 5 quick taps toggle diagnostics
       const now2=performance.now();
       diagTaps = now2-diagTapAt<1500 ? diagTaps+1 : 1;
       diagTapAt=now2;
-      if(diagTaps>=5){ diagTaps=0; toggleSW(); }
-      return;
-    }
-    if(sx<120 && sy>H-16-SAFE_B){                 // 5 taps: 1px canvas nudge A/B
-      const now3=performance.now();
-      nudgeTaps = now3-nudgeTapAt<1500 ? nudgeTaps+1 : 1;
-      nudgeTapAt=now3;
-      if(nudgeTaps>=5){ nudgeTaps=0; toggleNudge(); }
+      if(diagTaps>=5){ diagTaps=0; toggleDiag(); }
       return;
     }
     if(hit(updRect)){ doUpdate(); return; }
@@ -1647,23 +1649,24 @@ function mpDraw(){
   ctx.textAlign='right'; ctx.textBaseline='middle';
   ctx.font='700 10px system-ui,sans-serif'; ctx.fillStyle='rgba(255,255,255,0.45)';
   ctx.fillText('v'+VERSION+'   ·   ★ '+ZP.total+'   ·   swipe · tap a level',W-12,H-20-SAFE_B);
-  ctx.font='600 8px system-ui,sans-serif'; ctx.fillStyle='rgba(255,255,255,0.3)';
-  const vv2=window.visualViewport;
-  ctx.fillText('in'+innerWidth+'×'+innerHeight
-    +(vv2?' vv'+Math.round(vv2.width)+'×'+Math.round(vv2.height):'')
-    +' s'+screen.width+'×'+screen.height
-    +' @'+(window.devicePixelRatio||1)+' cv'+cv.width+'×'+cv.height
-    +(vv2&&vv2.scale!==1?' z'+vv2.scale.toFixed(2):'')+' rb'+rbN
-    +(swOff?' SW:OFF':' SW:on')+(NUDGE?' N:1':''),W-12,H-8-SAFE_B);
-  // sharpness probe: a checkerboard of SINGLE DEVICE PIXELS. Crisp fine
-  // grain = native rendering; uniform grey = the compositor is downscaling.
-  ctx.save(); ctx.setTransform(1,0,0,1,0,0);
-  const px0=cv.width-160, py0=cv.height-64-Math.round(SAFE_B*DPR);
-  for(let yy=0;yy<24;yy++) for(let xx=0;xx<24;xx++){
-    ctx.fillStyle=(xx+yy)%2?'#000':'#fff';
-    ctx.fillRect(px0+xx,py0+yy,1,1);
+  if(DIAG){
+    ctx.font='600 8px system-ui,sans-serif'; ctx.fillStyle='rgba(255,255,255,0.3)';
+    const vv2=window.visualViewport;
+    ctx.fillText('in'+innerWidth+'×'+innerHeight
+      +(vv2?' vv'+Math.round(vv2.width)+'×'+Math.round(vv2.height):'')
+      +' s'+screen.width+'×'+screen.height
+      +' @'+(window.devicePixelRatio||1)+' cv'+cv.width+'×'+cv.height
+      +(vv2&&vv2.scale!==1?' z'+vv2.scale.toFixed(2):'')+' rb'+rbN,W-12,H-8-SAFE_B);
+    // sharpness probe: a checkerboard of SINGLE DEVICE PIXELS. Crisp fine
+    // grain = native rendering; uniform grey = the compositor is downscaling.
+    ctx.save(); ctx.setTransform(1,0,0,1,0,0);
+    const px0=cv.width-160, py0=cv.height-64-Math.round(SAFE_B*DPR);
+    for(let yy=0;yy<24;yy++) for(let xx=0;xx<24;xx++){
+      ctx.fillStyle=(xx+yy)%2?'#000':'#fff';
+      ctx.fillRect(px0+xx,py0+yy,1,1);
+    }
+    ctx.restore();
   }
-  ctx.restore();
   mpDrawBrief();
 }
 function mpPath(mz,dist2){
@@ -3966,27 +3969,14 @@ checkUpdate();
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden) checkUpdate(); });
 window.addEventListener('pageshow',()=>checkUpdate());
 /* offline: the service worker caches the shell; network-first keeps it fresh */
-let swOff=false; try{ swOff=localStorage.getItem('fb_nosw')==='1'; }catch(e){}
-if('serviceWorker' in navigator && !swOff){ try{ navigator.serviceWorker.register('sw.js').catch(()=>{}); }catch(e){} }
-async function toggleSW(){
-  const turningOff=!swOff;
-  if(!confirm(turningOff?'Disable offline mode (service worker) and reload?':'Re-enable offline mode and reload?')) return;
-  try{ localStorage.setItem('fb_nosw',turningOff?'1':'0'); }catch(e){}
-  if(turningOff){
-    try{ const regs=await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map(r=>r.unregister())); }catch(e){}
-    try{ const ks=await caches.keys(); await Promise.all(ks.map(k=>caches.delete(k))); }catch(e){}
-  }
-  doUpdate();
+if('serviceWorker' in navigator){ try{ navigator.serviceWorker.register('sw.js').catch(()=>{}); }catch(e){} }
+let diagTaps=0, diagTapAt=0;
+function toggleDiag(){
+  DIAG=!DIAG;
+  try{ localStorage.setItem('fb_diag', DIAG?'1':'0'); }catch(e){}
+  const dp=document.getElementById('dp'); if(dp) dp.style.display=DIAG?'block':'none';
 }
-let diagTaps=0, diagTapAt=0, nudgeTaps=0, nudgeTapAt=0;
-function toggleNudge(){
-  const on=!NUDGE;
-  const msg=on ? 'Canvas nudge A/B: shave 1px off the canvas height (workaround for the iOS blurry-canvas-size bug). Turn ON?'
-               : 'Canvas nudge is ON. Restore full-height canvas?';
-  if(!confirm(msg)) return;
-  try{ localStorage.setItem('fb_nudge', on?'1':'0'); }catch(e){}
-  NUDGE=on; rebuildCanvas();
-}
+if(DIAG){ const dp=document.getElementById('dp'); if(dp) dp.style.display='block'; }
 /* zones app boots on the map */
 try{ for(const k of Object.keys(localStorage)) if(k.startsWith('fb_pace_zone')) localStorage.removeItem(k); }catch(e){}
 state='map'; mpSnapCur();
