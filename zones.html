@@ -33,20 +33,11 @@
      paintable area (bottom inset included), which iOS's innerHeight and
      visualViewport under-report in standalone full-bleed mode */
   #vp{position:fixed;inset:0;visibility:hidden;pointer-events:none}
-  /* DOM-rendered twin of the canvas sharpness probe (diag mode only):
-     1-device-px checkers via CSS. Canvas probe mush + this crisp = the
-     canvas layer is stuck at a low raster scale; BOTH mush = the whole
-     page's scale is stuck. */
-  #dp{display:none;position:fixed;right:172px;bottom:calc(env(safe-area-inset-bottom,0px) + 6px);
-      width:8px;height:8px;pointer-events:none;z-index:5;
-      background:repeating-conic-gradient(#000 0 25%,#fff 0 50%);
-      background-size:0.6667px 0.6667px}
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
 <div id="vp"></div>
-<div id="dp"></div>
 <script>
 /* zones framework: theme registry + FX animation toolkit + map geometry.
    Shared contract with theme-lab.html — see its THEME PACK CONTRACT block. */
@@ -100,14 +91,11 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.7.0 zones beta';
+const VERSION='Z0.7.1 zones beta';
 let cv = document.getElementById('c');
 let ctx = cv.getContext('2d');
 
 let W=0,H=0,CX=0,CY=0,DPR=1,SC=1,Fp=560,SAFE_T=0,SAFE_B=0;
-// hidden diagnostics (footer metrics line + the two sharpness probes):
-// 5 quick taps on the map's bottom-right corner toggles them
-let DIAG=false; try{ DIAG=localStorage.getItem('fb_diag')==='1'; }catch(e){}
 // The paintable area is measured off the #vp yardstick (fixed inset:0):
 // in standalone full-bleed mode iOS under-reports innerHeight AND
 // visualViewport (812 on an 874pt screen — they exclude the status bar
@@ -159,7 +147,6 @@ function ensureRes(){ if(!resMatch()) resize(); }
 // and stayed soft). Two levers actually reset it: re-computing the page
 // scale (viewport meta jiggle) and replacing the canvas element so it
 // gets a brand-new layer.
-let rbN=0;
 const VPMETA=document.querySelector('meta[name=viewport]');
 const VPCONTENT=VPMETA?VPMETA.getAttribute('content'):'';
 function vpKick(){
@@ -170,7 +157,6 @@ function vpKick(){
   requestAnimationFrame(()=>VPMETA.setAttribute('content',VPCONTENT));
 }
 function rebuildCanvas(){
-  rbN++;
   const n=document.createElement('canvas');
   n.id='c';
   cv.replaceWith(n);
@@ -1457,13 +1443,6 @@ function mpTap(ux,wy){
   { // screen-space buttons first
     const sx=ux*mpS0(), sy=(wy-mpCam)*mpS0();
     const hit=r=>r&&sx>=r[0]&&sx<=r[0]+r[2]&&sy>=r[1]&&sy<=r[1]+r[3];
-    if(sx>W-170 && sy>H-26-SAFE_B){    // 5 quick taps toggle diagnostics
-      const now2=performance.now();
-      diagTaps = now2-diagTapAt<1500 ? diagTaps+1 : 1;
-      diagTapAt=now2;
-      if(diagTaps>=5){ diagTaps=0; toggleDiag(); }
-      return;
-    }
     if(hit(updRect)){ doUpdate(); return; }
     if(hit(muteRect)){ muted=!muted; save(); applyMute(); return; }
     if(hit(nestRect)){ initAudio(); openShop(); return; }
@@ -1649,24 +1628,6 @@ function mpDraw(){
   ctx.textAlign='right'; ctx.textBaseline='middle';
   ctx.font='700 10px system-ui,sans-serif'; ctx.fillStyle='rgba(255,255,255,0.45)';
   ctx.fillText('v'+VERSION+'   ·   ★ '+ZP.total+'   ·   swipe · tap a level',W-12,H-20-SAFE_B);
-  if(DIAG){
-    ctx.font='600 8px system-ui,sans-serif'; ctx.fillStyle='rgba(255,255,255,0.3)';
-    const vv2=window.visualViewport;
-    ctx.fillText('in'+innerWidth+'×'+innerHeight
-      +(vv2?' vv'+Math.round(vv2.width)+'×'+Math.round(vv2.height):'')
-      +' s'+screen.width+'×'+screen.height
-      +' @'+(window.devicePixelRatio||1)+' cv'+cv.width+'×'+cv.height
-      +(vv2&&vv2.scale!==1?' z'+vv2.scale.toFixed(2):'')+' rb'+rbN,W-12,H-8-SAFE_B);
-    // sharpness probe: a checkerboard of SINGLE DEVICE PIXELS. Crisp fine
-    // grain = native rendering; uniform grey = the compositor is downscaling.
-    ctx.save(); ctx.setTransform(1,0,0,1,0,0);
-    const px0=cv.width-160, py0=cv.height-64-Math.round(SAFE_B*DPR);
-    for(let yy=0;yy<24;yy++) for(let xx=0;xx<24;xx++){
-      ctx.fillStyle=(xx+yy)%2?'#000':'#fff';
-      ctx.fillRect(px0+xx,py0+yy,1,1);
-    }
-    ctx.restore();
-  }
   mpDrawBrief();
 }
 function mpPath(mz,dist2){
@@ -3535,6 +3496,7 @@ function shopTap(x,y){
     if(x<rx||x>rx+rw||yy<ry||yy>ry+rh) continue;
     // track consecutive taps on the same model card for the debug gestures
     if(s2.a==='skin'){ if(s2.id===streakId) streakN++; else { streakId=s2.id; streakN=1; } }
+    else if(s2.a==='track'){ const tid='track:'+s2.id; if(tid===streakId) streakN++; else { streakId=tid; streakN=1; } }
     else { streakId=null; streakN=0; }
     if(s2.a==='close'){ closeShop(); return; }
     if(s2.a==='buy'){
@@ -3573,6 +3535,18 @@ function shopTap(x,y){
       return;
     }
     if(s2.a==='track'){
+      if(s2.id==='wacky' && streakN>=7){
+        streakN=0;
+        if(confirm('DEBUG · off\nswitch OFF all debug modes (invincibility, stacking surf) and reload?')){
+          try{
+            const u=new URL(location.href);
+            u.searchParams.delete('debug');
+            u.searchParams.delete('reload');
+            location.replace(u.href);
+          }catch(e){ location.reload(); }
+        }
+        return;
+      }
       track=s2.id; noteI=0; save(); sfx.gem();
       shopSay(TRACKS.find(q=>q.id===s2.id).name+' SELECTED');
       return;
@@ -3970,13 +3944,6 @@ document.addEventListener('visibilitychange',()=>{ if(!document.hidden) checkUpd
 window.addEventListener('pageshow',()=>checkUpdate());
 /* offline: the service worker caches the shell; network-first keeps it fresh */
 if('serviceWorker' in navigator){ try{ navigator.serviceWorker.register('sw.js').catch(()=>{}); }catch(e){} }
-let diagTaps=0, diagTapAt=0;
-function toggleDiag(){
-  DIAG=!DIAG;
-  try{ localStorage.setItem('fb_diag', DIAG?'1':'0'); }catch(e){}
-  const dp=document.getElementById('dp'); if(dp) dp.style.display=DIAG?'block':'none';
-}
-if(DIAG){ const dp=document.getElementById('dp'); if(dp) dp.style.display='block'; }
 /* zones app boots on the map */
 try{ for(const k of Object.keys(localStorage)) if(k.startsWith('fb_pace_zone')) localStorage.removeItem(k); }catch(e){}
 state='map'; mpSnapCur();
