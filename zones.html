@@ -84,7 +84,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.6.2 zones beta';
+const VERSION='Z0.6.3 zones beta';
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
 
@@ -95,11 +95,8 @@ let W=0,H=0,CX=0,CY=0,DPR=1,SC=1,Fp=560;
 // arbiter: if the measurement disagrees with it, take the screen's word.
 function vpSize(){
   const vv=window.visualViewport;
-  let w = (vv&&vv.width)  ? vv.width  : (document.documentElement.clientWidth ||window.innerWidth);
-  let h = (vv&&vv.height) ? vv.height : (document.documentElement.clientHeight||window.innerHeight);
-  if(screen&&screen.width&&screen.height&&(w>h)!==(screen.width>screen.height)){
-    w=screen.width; h=screen.height;
-  }
+  const w = (vv&&vv.width)  ? vv.width  : (document.documentElement.clientWidth ||window.innerWidth);
+  const h = (vv&&vv.height) ? vv.height : (document.documentElement.clientHeight||window.innerHeight);
   return [Math.round(w),Math.round(h)];
 }
 function resize(){
@@ -1094,6 +1091,34 @@ function zoneTraits(n){
   return out;
 }
 function zTrait(k){ return !!(levelQ&&levelQ.traits&&levelQ.traits.includes(k)); }
+/* landscape guard: the game is a portrait bird. iOS web apps cannot lock
+   orientation, so in landscape we pause gameplay and ask for a rotate. */
+function drawRotate(){
+  ctx.fillStyle='rgba(5,1,15,0.94)'; ctx.fillRect(0,0,W,H);
+  const cx=W/2, cy=H/2;
+  ctx.save(); ctx.translate(cx,cy-16);
+  const ph=(t%2.4)/2.4;
+  const rot=Math.PI/2 - (ph<0.4 ? (ph/0.4)*Math.PI/2 : Math.PI/2);
+  ctx.rotate(rot);
+  ctx.strokeStyle='#fff'; ctx.lineWidth=4; ctx.lineJoin='round';
+  ctx.shadowColor='hsl('+((t*90)%360)+',100%,60%)'; ctx.shadowBlur=16;
+  ctx.beginPath();
+  if(ctx.roundRect) ctx.roundRect(-30,-52,60,104,10); else ctx.rect(-30,-52,60,104);
+  ctx.stroke(); ctx.shadowBlur=0;
+  ctx.strokeStyle='rgba(255,255,255,0.6)'; ctx.lineWidth=3; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(-8,-42); ctx.lineTo(8,-42); ctx.stroke();
+  ctx.restore();
+  ctx.save(); ctx.translate(cx,cy-16+FX.bob(t,3,3));
+  drawModel(skin, 10, null, 45, 100, 58, 0.3+Math.sin(t*8)*0.3);
+  ctx.restore();
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.font='900 20px system-ui,sans-serif'; ctx.fillStyle='#fff';
+  ctx.shadowColor='hsl('+((t*90)%360)+',100%,55%)'; ctx.shadowBlur=12;
+  ctx.fillText('ROTATE YOUR PHONE', cx, cy+78);
+  ctx.shadowBlur=0;
+  ctx.font='700 12px system-ui,sans-serif'; ctx.fillStyle='rgba(255,255,255,0.6)';
+  ctx.fillText('flashy bird is a portrait kind of bird', cx, cy+102);
+}
 /* BLACKOUT: the world only exists near the bird plane — a headlight vignette */
 function drawBlackout(){
   const [bx,by]=proj(0,bird.y,BZ);
@@ -1749,6 +1774,7 @@ function fireBtn(act){
   else if(act==='chal') claimChal();
 }
 window.addEventListener('pointerdown',e=>{
+  if(W>H){ e.preventDefault(); return; }   // rotate prompt owns the screen
   pressX=e.clientX; pressY=e.clientY; pressDown=true;
   pendBtn=null;
   if(state==='map'){ e.preventDefault(); initAudio(); mpDown(e); return; }
@@ -1835,6 +1861,7 @@ window.addEventListener('keyup',e=>{ if(e.key==='Shift') pedalOn=false; });
 // input runs on pointer events so no click handlers are lost.
 window.addEventListener('touchend',e=>{ initAudio(); if(e.cancelable) e.preventDefault(); },{passive:false});
 window.addEventListener('keydown',e=>{
+  if(W>H) return;
   if(e.key==='Shift' && state==='play' && (tier('pedal')>0||DBG.surfer)){ if(DBG.surfer&&!e.repeat) dbgSurf(); pedalOn=true; return; }
   if(e.repeat) return;
   if(e.code==='Escape' && state==='shop'){ closeShop(); return; }
@@ -1888,7 +1915,7 @@ function update(dt){
   // stars always move
   for(const s of stars){ s.z-=adv*0.85; if(s.z<BZ+8){ s.z+=FAR-BZ; s.x=rand(-260,260); s.y=rand(-260,260);} }
 
-  if(state==='play'){
+  if(state==='play' && W<=H){
     if(DBG.power) starT=Math.max(starT,1.5);   // ?debug=poweroverwhelming
     dist += adv;
     if(levelQ && !levelQ.warned && levelQ.len-dist<1500){
@@ -2328,6 +2355,7 @@ function render(){
   if(state==='shop') drawShop();
   if(state==='map') mpDraw();
   if(state==='done') drawDone();
+  if(W>H) drawRotate();
   if(spinning) ctx.restore();
 }
 
