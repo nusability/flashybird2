@@ -91,7 +91,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.7.1 zones beta';
+const VERSION='Z0.7.2 zones beta';
 let cv = document.getElementById('c');
 let ctx = cv.getContext('2d');
 
@@ -1181,7 +1181,7 @@ const zStars=n=>ZP.stars[n]||[0,0,0,0,0,0,0];
 function startLevel(n,k,x2){
   const idx=(n-1)*7+(k-1);
   levelQ={ n, k, x2:!!x2,
-    diff: Math.min(6, Math.floor(idx/14)+(x2?2:0)),
+    diff: Math.min(6, Math.floor(idx/14)),
     spd0: Math.min(360, 250+idx*1.0),
     len:  Math.min(12500, 8000+idx*50),
     traits: zoneTraits(n),
@@ -1456,7 +1456,7 @@ function mpTap(ux,wy){
   const mz=mpMaze(z.n);
   const gateY=(mz.nodes[3][1]+mz.nodes[2][1])/2;
   if(z.vis==='current' && Math.hypot(ux-G.SKIP.lane,ly-gateY)<30){
-    mpSay('SKIP GATE — ×2 difficulty, one shot!',48);
+    mpSay('SKIP GATE — clear this level to leap the zone!',48);
     startLevel(z.n, ZP.lvl, true); return;
   }
   for(let k=1;k<=7;k++){
@@ -1658,7 +1658,7 @@ function mpZoneUI(win,zi){
       ctx[i?'lineTo':'moveTo'](Math.cos(a)*G.SKIP.r,Math.sin(a)*G.SKIP.r); }
     ctx.closePath(); ctx.stroke(); ctx.shadowBlur=0; ctx.restore();
     ctx.fillStyle='#ffd977'; ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.font='900 11px system-ui,sans-serif'; ctx.fillText('×2',G.SKIP.lane,gateY);
+    ctx.font='900 13px system-ui,sans-serif'; ctx.fillText('»',G.SKIP.lane,gateY);
     ctx.font='700 8px system-ui,sans-serif'; ctx.fillStyle='rgba(255,217,119,0.8)';
     ctx.fillText('SKIP',G.SKIP.lane,gateY+G.SKIP.r+9);
   }
