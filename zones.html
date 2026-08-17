@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#05010f">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Flashy Zones">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="manifest" href="manifest.webmanifest">
@@ -25,6 +25,8 @@
 <meta name="twitter:description" content="One-tap flappy flight through a flashy, warping space tunnel. Instant restarts, endless dopamine.">
 <meta name="twitter:image" content="https://nusability.github.io/flashybird2/og.png">
 <style>
+  /* safe-area insets surfaced as custom props so canvas JS can read them */
+  :root{--sat:env(safe-area-inset-top,0px);--sab:env(safe-area-inset-bottom,0px)}
   html,body{margin:0;padding:0;background:#05010f;overflow:hidden;height:100%;touch-action:none;-webkit-user-select:none;user-select:none;overscroll-behavior:none}
   canvas{display:block;position:fixed;inset:0;cursor:pointer;touch-action:none}
 </style>
@@ -84,26 +86,37 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.6.4 zones beta';
+const VERSION='Z0.6.5 zones beta';
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
 
-let W=0,H=0,CX=0,CY=0,DPR=1,SC=1,Fp=560;
+let W=0,H=0,CX=0,CY=0,DPR=1,SC=1,Fp=560,SAFE_T=0,SAFE_B=0;
+// certain canvas backing-store sizes render blurry on iOS (the GPU process
+// rasterizes them at reduced scale; webkit bug 242847 — resizing by ONE
+// pixel flips them crisp). fb_nudge shaves 1 CSS px off the canvas height
+// as a live A/B for that bug: 5 quick taps on the map's bottom-left corner.
+let NUDGE=false; try{ NUDGE=localStorage.getItem('fb_nudge')==='1'; }catch(e){}
 // iOS standalone can hand out stale, rotation-swapped innerWidth/Height
 // (seen live: 750x402 reported on a portrait phone). visualViewport tracks
-// the truth more reliably, and the physical screen aspect is the final
-// arbiter: if the measurement disagrees with it, take the screen's word.
+// the truth more reliably.
 function vpSize(){
   const vv=window.visualViewport;
   const w = (vv&&vv.width)  ? vv.width  : (document.documentElement.clientWidth ||window.innerWidth);
   const h = (vv&&vv.height) ? vv.height : (document.documentElement.clientHeight||window.innerHeight);
-  return [Math.round(w),Math.round(h)];
+  return [Math.round(w),Math.round(h)-(NUDGE?1:0)];
 }
 function resize(){
   // render at native density (3x on modern phones) so text and thin
   // strokes stay crisp; cap at 3 to bound fill cost on zoomed desktops
   DPR = Math.min(window.devicePixelRatio||1, 3);
   [W,H] = vpSize();
+  // black-translucent standalone runs edge-to-edge under the status bar and
+  // home indicator; UI anchored to the top/bottom edges ducks the insets
+  try{
+    const cs=getComputedStyle(document.documentElement);
+    SAFE_T=parseFloat(cs.getPropertyValue('--sat'))||0;
+    SAFE_B=parseFloat(cs.getPropertyValue('--sab'))||0;
+  }catch(e){ SAFE_T=0; SAFE_B=0; }
   cv.width = W*DPR; cv.height = H*DPR;
   cv.style.width = W+'px'; cv.style.height = H+'px';
   ctx.setTransform(DPR,0,0,DPR,0,0);
@@ -1401,11 +1414,18 @@ function mpTap(ux,wy){
   { // screen-space buttons first
     const sx=ux*mpS0(), sy=(wy-mpCam)*mpS0();
     const hit=r=>r&&sx>=r[0]&&sx<=r[0]+r[2]&&sy>=r[1]&&sy<=r[1]+r[3];
-    if(sx>W-170 && sy>H-26){                      // 5 taps on the diag corner
+    if(sx>W-170 && sy>H-26-SAFE_B){               // 5 taps on the diag corner
       const now2=performance.now();
       diagTaps = now2-diagTapAt<1500 ? diagTaps+1 : 1;
       diagTapAt=now2;
       if(diagTaps>=5){ diagTaps=0; toggleSW(); }
+      return;
+    }
+    if(sx<120 && sy>H-16-SAFE_B){                 // 5 taps: 1px canvas nudge A/B
+      const now3=performance.now();
+      nudgeTaps = now3-nudgeTapAt<1500 ? nudgeTaps+1 : 1;
+      nudgeTapAt=now3;
+      if(nudgeTaps>=5){ nudgeTaps=0; toggleNudge(); }
       return;
     }
     if(hit(updRect)){ doUpdate(); return; }
@@ -1575,35 +1595,35 @@ function mpDraw(){
     const a=Math.min(1,mpToastT*1.6);
     ctx.shadowColor='hsla('+mpToastHue+',100%,55%,'+a+')'; ctx.shadowBlur=14;
     ctx.fillStyle='rgba(255,255,255,'+a+')';
-    ctx.fillText(mpToast,G.UNIT_W/2,viewH-64-(2.6-mpToastT)*10);
+    ctx.fillText(mpToast,G.UNIT_W/2,viewH-64-SAFE_B/mpS0()-(2.6-mpToastT)*10);
     ctx.shadowBlur=0;
   }
   ctx.restore();
   /* chrome (screen space) */
   const US=uiS(), S3=52*US;
-  if(updReady){ updRect=pillBtn(W/2, 26+14*US, 190*US, 38*US, '⬆ UPDATE '+updReady, 130, true); }
+  if(updReady){ updRect=pillBtn(W/2, 26+14*US+SAFE_T, 190*US, 38*US, '⬆ UPDATE '+updReady, 130, true); }
   else updRect=null;
-  muteRect=cornerBtn(12+S3/2, 12+S3/2, S3, muted?'MUTED':'SOUND', 190, false, soundIcon);
-  nestRect=cornerBtn(W-12-S3/2, 12+S3/2, S3, 'NEST', (hue+120)%360, nestAlert(), nestIcon, String(bugs));
-  deepRect=pillBtn(14+66*US, H-40*US, 132*US, 40*US, 'DEEP TUNNEL', 210, false);
+  muteRect=cornerBtn(12+S3/2, 12+SAFE_T+S3/2, S3, muted?'MUTED':'SOUND', 190, false, soundIcon);
+  nestRect=cornerBtn(W-12-S3/2, 12+SAFE_T+S3/2, S3, 'NEST', (hue+120)%360, nestAlert(), nestIcon, String(bugs));
+  deepRect=pillBtn(14+66*US, H-40*US-SAFE_B, 132*US, 40*US, 'DEEP TUNNEL', 210, false);
   const curIdx=win.findIndex(z2=>z2.vis==='current');
   if(mpSnapZi!==curIdx || Math.abs(mpCam-mpZoneCam(win,curIdx))>G.ZONE_H*0.6){
-    mpTopRect=pillBtn(W-14-72*US, H-40*US, 144*US, 40*US, '▲ CURRENT ZONE', 48, false);
+    mpTopRect=pillBtn(W-14-72*US, H-40*US-SAFE_B, 144*US, 40*US, '▲ CURRENT ZONE', 48, false);
   } else mpTopRect=null;
   ctx.textAlign='right'; ctx.textBaseline='middle';
   ctx.font='700 10px system-ui,sans-serif'; ctx.fillStyle='rgba(255,255,255,0.45)';
-  ctx.fillText('v'+VERSION+'   ·   ★ '+ZP.total+'   ·   swipe · tap a level',W-12,H-20);
+  ctx.fillText('v'+VERSION+'   ·   ★ '+ZP.total+'   ·   swipe · tap a level',W-12,H-20-SAFE_B);
   ctx.font='600 8px system-ui,sans-serif'; ctx.fillStyle='rgba(255,255,255,0.3)';
   const vv2=window.visualViewport;
   ctx.fillText('in'+innerWidth+'×'+innerHeight
     +(vv2?' vv'+Math.round(vv2.width)+'×'+Math.round(vv2.height):'')
     +' s'+screen.width+'×'+screen.height
     +' @'+(window.devicePixelRatio||1)+' cv'+cv.width+'×'+cv.height
-    +(swOff?' SW:OFF':' SW:on'),W-12,H-8);
+    +(swOff?' SW:OFF':' SW:on')+(NUDGE?' N:1':''),W-12,H-8-SAFE_B);
   // sharpness probe: a checkerboard of SINGLE DEVICE PIXELS. Crisp fine
   // grain = native rendering; uniform grey = the compositor is downscaling.
   ctx.save(); ctx.setTransform(1,0,0,1,0,0);
-  const px0=cv.width-160, py0=cv.height-64;
+  const px0=cv.width-160, py0=cv.height-64-Math.round(SAFE_B*DPR);
   for(let yy=0;yy<24;yy++) for(let xx=0;xx<24;xx++){
     ctx.fillStyle=(xx+yy)%2?'#000':'#fff';
     ctx.fillRect(px0+xx,py0+yy,1,1);
@@ -1762,7 +1782,7 @@ function claimChal(){
   chalClaimed=true; bugs+=CHAL.reward;
   try{ localStorage.setItem('fb_chalc',TODAY); }catch(e2){}
   save();
-  chalPos=[CX, H-chalBandH()-40*uiS()];
+  chalPos=[CX, H-chalBandH()-SAFE_B-40*uiS()];
   chalAnim=0; chalCount=0; chalFly=[];
   burst(chalPos[0],chalPos[1],36,60,400*SC,5*SC);
   burst(chalPos[0],chalPos[1],22,95,320*SC,4*SC);
@@ -1809,7 +1829,7 @@ window.addEventListener('pointerdown',e=>{
   }
   if(state==='play' && DBG.power && inR(dbgPowerRect)){ arm('god',dbgPowerRect); return; }
   if(state==='play' && (tier('pedal')>0||DBG.surfer)){
-    const dx=e.clientX-(W-66), dy=e.clientY-(H-66);
+    const dx=e.clientX-(W-66), dy=e.clientY-(H-66-SAFE_B);
     if(dx*dx+dy*dy < 52*52){ e.preventDefault(); initAudio(); pedalOn=true; pedalPid=e.pointerId; if(DBG.surfer) dbgSurf(); return; }
   }
   if(state==='title' || (state==='dead'&&deadT>0.25)){
@@ -2778,7 +2798,7 @@ function drawHUD(surfing,starred){
   // score
   const ps=1+scorePop*0.28;
   ctx.save();
-  ctx.translate(CX, 18*SC);
+  ctx.translate(CX, 18*SC+SAFE_T);
   ctx.scale(ps,ps);
   ctx.font=`900 ${Math.round(58*SC)}px system-ui,sans-serif`;
   ctx.shadowColor=`hsl(${hue},100%,55%)`; ctx.shadowBlur=18*SC;
@@ -2790,13 +2810,13 @@ function drawHUD(surfing,starred){
   if(state==='play' && combo>=2){
     ctx.font=`800 ${Math.round(21*SC)}px system-ui,sans-serif`;
     ctx.fillStyle=`hsl(${(hue+120)%360},100%,70%)`;
-    ctx.fillText('COMBO ×'+combo, CX, 84*SC);
+    ctx.fillText('COMBO ×'+combo, CX, 84*SC+SAFE_T);
   }
   // one consolidated stat line: distance · best · glowbugs
   if(state==='play'){
     ctx.textBaseline='middle';
     ctx.font=`700 ${Math.round(14*SC)}px system-ui,sans-serif`;
-    const ly=116*SC, sep='   ';
+    const ly=116*SC+SAFE_T, sep='   ';
     const s1='DIST '+Math.floor(dist), s2='BEST '+best, s3=String(bugs);
     const dotW=13*SC;
     let x=CX-(ctx.measureText(s1+sep+s2+sep).width+dotW+ctx.measureText(s3).width)/2;
@@ -2817,11 +2837,11 @@ function drawHUD(surfing,starred){
     ctx.textAlign='right';
     ctx.font=`900 ${Math.round(26*SC)}px system-ui,sans-serif`;
     ctx.fillStyle=`hsl(320,100%,${60+Math.sin(t*10)*12}%)`;
-    ctx.fillText('×'+mult, W-16*SC, 16*SC);
+    ctx.fillText('×'+mult, W-16*SC, 16*SC+SAFE_T);
   }
   // level progress lives at the very bottom with the other status bars
   if(state==='play' && levelQ){
-    const bw2=190*SC, by2=H-12;
+    const bw2=190*SC, by2=H-12-SAFE_B;
     ctx.fillStyle='rgba(255,255,255,0.18)'; ctx.fillRect(CX-bw2/2,by2,bw2,6);
     ctx.fillStyle=`hsl(${hue},100%,65%)`; ctx.fillRect(CX-bw2/2,by2,bw2*clamp(dist/levelQ.len,0,1),6);
     for(let ci=0;ci<2;ci++) for(let cj=0;cj<2;cj++){
@@ -2837,7 +2857,7 @@ function drawHUD(surfing,starred){
     }
   }
   // power timers
-  let ty=H-26*SC-(state==='play'&&levelQ?18:0);
+  let ty=H-26*SC-SAFE_B-(state==='play'&&levelQ?18:0);
   const barW=170*SC;
   if(surfing){
     ctx.fillStyle='rgba(200,230,255,0.25)'; ctx.fillRect(CX-barW/2,ty,barW,8*SC);
@@ -2873,7 +2893,7 @@ function drawHUD(surfing,starred){
     const total=harnessLeft+(stock.harness|0);
     ctx.font=`800 ${Math.round(S*0.34)}px system-ui,sans-serif`;
     const tw=ctx.measureText('×'+total).width;
-    const pw=S*0.58+tw+S*0.24, px=W-10-pw, py=10;
+    const pw=S*0.58+tw+S*0.24, px=W-10-pw, py=10+SAFE_T;
     ctx.globalAlpha=0.75;
     ctx.fillStyle='rgba(255,255,255,0.08)';
     ctx.strokeStyle='hsla(30,100%,65%,0.8)'; ctx.lineWidth=Math.max(1.5,S*0.035);
@@ -2893,7 +2913,7 @@ function drawHUD(surfing,starred){
   }
   // slo-mo pedal
   if(state==='play' && (tier('pedal')>0||DBG.surfer)){
-    const pcx=W-66, pcy=H-66, pr=44;
+    const pcx=W-66, pcy=H-66-SAFE_B, pr=44;
     const active=pedalOn&&!pedalLock&&pedalT>0;
     ctx.fillStyle=active?'rgba(120,210,255,0.3)':'rgba(255,255,255,0.08)';
     ctx.beginPath(); ctx.arc(pcx,pcy,pr,0,TAU); ctx.fill();
@@ -2910,19 +2930,19 @@ function drawHUD(surfing,starred){
   // edit the URL, so god mode carries its own off switch
   if(DBG.power && state==='play'){
     const US=uiS(), bw=132*US, bh=36*US;
-    dbgPowerRect=pillBtn(14+bw/2, H-64*US, bw, bh, 'END GOD MODE', (t*400)%360, false);
+    dbgPowerRect=pillBtn(14+bw/2, H-64*US-SAFE_B, bw, bh, 'END GOD MODE', (t*400)%360, false);
   } else dbgPowerRect=null;
   // mute toggle: styled corner button on menu screens, whisper-quiet
   // bare glyph during play so it never competes with the tunnel
   if(state==='title' || (state==='dead'&&deadT>0.25)){
     const S=58*uiS();
-    muteRect=cornerBtn(12+S/2, 12+S/2, S, muted?'MUTED':'SOUND', 190, false, soundIcon);
+    muteRect=cornerBtn(12+S/2, 12+SAFE_T+S/2, S, muted?'MUTED':'SOUND', 190, false, soundIcon);
   } else {
     // in flight: same styling, icon-only and smaller, slightly faded so
     // it never competes with the tunnel — but still a real button
     const S=44*uiS();
     ctx.globalAlpha=0.75;
-    muteRect=cornerBtn(10+S/2, 10+S/2, S, '', 190, false, soundIcon);
+    muteRect=cornerBtn(10+S/2, 10+SAFE_T+S/2, S, '', 190, false, soundIcon);
     ctx.globalAlpha=1;
   }
 }
@@ -3031,15 +3051,15 @@ function drawTitle(){
   ctx.font=`600 ${Math.round(10*US)}px system-ui,sans-serif`;
   ctx.fillStyle='rgba(255,255,255,0.3)';
   ctx.textAlign='left'; ctx.textBaseline='middle';
-  ctx.fillText('v'+VERSION, 14, 12+58*US+14);
+  ctx.fillText('v'+VERSION, 14, 12+SAFE_T+58*US+14);
   ctx.textAlign='center';
-  mapBackRect=pillBtn(14+62*US, 12+58*US+44*US, 124*US, 36*US, 'ZONE MAP', 260, false);
+  mapBackRect=pillBtn(14+62*US, 12+SAFE_T+58*US+44*US, 124*US, 36*US, 'ZONE MAP', 260, false);
 }
 // TR nest + BL share, the fixed utility corners shared by both screens
 function drawCorners(){
   const US=uiS(), S=58*US;
-  nestRect=cornerBtn(W-12-S/2, 12+S/2, S, 'NEST', (hue+120)%360, nestAlert(), nestIcon, String(bugs));
-  shareRect=cornerBtn(12+S/2, H-chalBandH()-12-S/2, S, 'SHARE', hue, false, shareIcon);
+  nestRect=cornerBtn(W-12-S/2, 12+SAFE_T+S/2, S, 'NEST', (hue+120)%360, nestAlert(), nestIcon, String(bugs));
+  shareRect=cornerBtn(12+S/2, H-chalBandH()-SAFE_B-12-S/2, S, 'SHARE', hue, false, shareIcon);
 }
 
 function nestAlert(){
@@ -3228,7 +3248,7 @@ function drawShop(){
   // sections get room to breathe
   const SS=Math.min(Math.max(SC, Math.min(W,H)/430), 1.1);
   ctx.fillStyle='rgba(5,1,15,0.84)'; fillFrame();
-  const headH=shopHeadH=84*SS;
+  const headH=shopHeadH=84*SS+SAFE_T;
   ctx.save();
   ctx.translate(0,-shopScroll);
   ctx.textAlign='center'; ctx.textBaseline='middle';
@@ -3435,16 +3455,16 @@ function drawShop(){
   ctx.font=`900 ${Math.round(30*SS)}px system-ui,sans-serif`;
   ctx.shadowColor=`hsl(${hue},100%,55%)`; ctx.shadowBlur=18*SS;
   ctx.fillStyle='#fff';
-  ctx.fillText('THE NEST', CX, 34*SS);
+  ctx.fillText('THE NEST', CX, 34*SS+SAFE_T);
   ctx.shadowBlur=0;
   ctx.fillStyle='hsl(95,100%,72%)';
   ctx.shadowColor='hsl(95,100%,60%)'; ctx.shadowBlur=8*SS;
-  ctx.beginPath(); ctx.arc(CX-44*SS,66*SS,6*SS,0,TAU); ctx.fill();
+  ctx.beginPath(); ctx.arc(CX-44*SS,66*SS+SAFE_T,6*SS,0,TAU); ctx.fill();
   ctx.shadowBlur=0;
   ctx.font=`800 ${Math.round(16*SS)}px system-ui,sans-serif`;
   ctx.fillStyle='#fff'; ctx.textAlign='left';
-  ctx.fillText(bugs+' glowbugs', CX-32*SS, 66*SS);
-  const xr=[W-52,12,40,40];
+  ctx.fillText(bugs+' glowbugs', CX-32*SS, 66*SS+SAFE_T);
+  const xr=[W-52,12+SAFE_T,40,40];
   shopRects.push({r:xr,a:'close',fixed:true});
   ctx.strokeStyle='rgba(255,255,255,0.85)'; ctx.lineWidth=3; ctx.lineCap='round';
   ctx.beginPath(); ctx.moveTo(xr[0]+12,xr[1]+12); ctx.lineTo(xr[0]+28,xr[1]+28);
@@ -3463,7 +3483,7 @@ function drawShop(){
     ctx.textAlign='center';
     ctx.font=`800 ${Math.round(15*SS)}px system-ui,sans-serif`;
     ctx.fillStyle=`rgba(255,255,255,${clamp(shopMsgT,0,1)})`;
-    ctx.fillText(shopMsg, CX, H-30*SS);
+    ctx.fillText(shopMsg, CX, H-30*SS-SAFE_B);
   }
 }
 function shopSay(m){ shopMsg=m; shopMsgT=1.6; }
@@ -3668,7 +3688,7 @@ function chalBandH(){
 }
 function drawChalBand(){
   chalRect=null;
-  const US=uiS(), bh=chalBandH(), by=H-bh;
+  const US=uiS(), bh=chalBandH(), by=H-bh-SAFE_B, bhF=bh+SAFE_B;
   const fmt=n=> n>=10000 ? Math.round(n/1000)+'k' : String(n);
   ctx.textAlign='center'; ctx.textBaseline='middle';
   // celebration: reward bugs swirl to the band, count-up rides above it
@@ -3706,15 +3726,15 @@ function drawChalBand(){
   if(chalDone && !chalClaimed && chalAnim<0){
     // COLLECT: the whole band is the button
     const pl=0.5+Math.sin(t*6)*0.5;
-    chalRect=[0,by,W,bh];
+    chalRect=[0,by,W,bhF];
     const gr=ctx.createLinearGradient(0,by,W,by);
     gr.addColorStop(0,'hsl(48,100%,48%)');
     gr.addColorStop(0.5,'hsl(80,100%,52%)');
     gr.addColorStop(1,'hsl(48,100%,48%)');
     ctx.fillStyle=gr;
-    ctx.fillRect(0,by,W,bh);
+    ctx.fillRect(0,by,W,bhF);
     ctx.fillStyle=`rgba(255,255,255,${0.10+pl*0.12})`;
-    ctx.fillRect(0,by,W,bh);
+    ctx.fillRect(0,by,W,bhF);
     ctx.fillStyle='#221';
     ctx.font=`900 ${Math.round(15*US)}px system-ui,sans-serif`;
     ctx.fillText('DAILY CHALLENGE DONE — COLLECT +'+CHAL.reward+' BUGS', CX, by+bh/2);
@@ -3722,7 +3742,7 @@ function drawChalBand(){
   }
   // quiet band base
   ctx.fillStyle='rgba(5,1,15,0.72)';
-  ctx.fillRect(0,by,W,bh);
+  ctx.fillRect(0,by,W,bhF);
   if(chalClaimed){
     ctx.strokeStyle='rgba(255,255,255,0.1)'; ctx.lineWidth=1;
     ctx.beginPath(); ctx.moveTo(0,by+0.5); ctx.lineTo(W,by+0.5); ctx.stroke();
@@ -3735,9 +3755,9 @@ function drawChalBand(){
   const p=Math.min(chProg,CHAL.goal), frac=clamp(p/CHAL.goal,0,1);
   if(frac>0){
     ctx.fillStyle='hsla(95,100%,55%,0.20)';
-    ctx.fillRect(0,by,W*frac,bh);
+    ctx.fillRect(0,by,W*frac,bhF);
     ctx.fillStyle='hsl(95,100%,60%)';
-    ctx.fillRect(W*frac-1.5,by,3,bh);
+    ctx.fillRect(W*frac-1.5,by,3,bhF);
   }
   ctx.strokeStyle='rgba(255,255,255,0.12)'; ctx.lineWidth=1;
   ctx.beginPath(); ctx.moveTo(0,by+0.5); ctx.lineTo(W,by+0.5); ctx.stroke();
@@ -3751,7 +3771,7 @@ function drawChalBand(){
 function giftPos(){
   // bottom-right corner, tucked above the challenge band
   const GS=uiS();
-  return [W-56*GS, H-chalBandH()-52*GS, GS];
+  return [W-56*GS, H-chalBandH()-SAFE_B-52*GS, GS];
 }
 function drawGift(){
   giftRect=null;
@@ -3923,7 +3943,15 @@ async function toggleSW(){
   }
   doUpdate();
 }
-let diagTaps=0, diagTapAt=0;
+let diagTaps=0, diagTapAt=0, nudgeTaps=0, nudgeTapAt=0;
+function toggleNudge(){
+  const on=!NUDGE;
+  const msg=on ? 'Canvas nudge A/B: shave 1px off the canvas height (workaround for the iOS blurry-canvas-size bug). Turn ON?'
+               : 'Canvas nudge is ON. Restore full-height canvas?';
+  if(!confirm(msg)) return;
+  try{ localStorage.setItem('fb_nudge', on?'1':'0'); }catch(e){}
+  NUDGE=on; resize();
+}
 /* zones app boots on the map */
 try{ for(const k of Object.keys(localStorage)) if(k.startsWith('fb_pace_zone')) localStorage.removeItem(k); }catch(e){}
 state='map'; mpSnapCur();
