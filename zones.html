@@ -84,7 +84,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.6 zones beta';
+const VERSION='Z0.6.1 zones beta';
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
 
@@ -112,9 +112,12 @@ function resMatch(){
   return Math.abs(cv.width-window.innerWidth*dpr)<2 && Math.abs(cv.height-window.innerHeight*dpr)<2;
 }
 function ensureRes(){ if(!resMatch()) resize(); }
-window.addEventListener('pageshow',ensureRes);
+// resume/relaunch recreates the backing store outright: iOS can evict a
+// backgrounded canvas's GPU store and bring it back soft with the SAME
+// reported dimensions, which the mismatch check cannot see.
+window.addEventListener('pageshow',()=>resize());
 window.addEventListener('focus',ensureRes);
-document.addEventListener('visibilitychange',ensureRes);
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden) resize(); });
 window.addEventListener('orientationchange',()=>setTimeout(ensureRes,80));
 if(window.visualViewport) window.visualViewport.addEventListener('resize',ensureRes);
 let resGuardN=24;
@@ -1545,6 +1548,9 @@ function mpDraw(){
   ctx.textAlign='right'; ctx.textBaseline='middle';
   ctx.font='700 10px system-ui,sans-serif'; ctx.fillStyle='rgba(255,255,255,0.45)';
   ctx.fillText('v'+VERSION+'   ·   ★ '+ZP.total+'   ·   swipe · tap a level',W-12,H-20);
+  ctx.font='600 8px system-ui,sans-serif'; ctx.fillStyle='rgba(255,255,255,0.3)';
+  const vvs=(window.visualViewport?visualViewport.scale:1).toFixed(2);
+  ctx.fillText(innerWidth+'×'+innerHeight+' @'+(window.devicePixelRatio||1)+' vv'+vvs+' cv'+cv.width+'×'+cv.height,W-12,H-8);
   mpDrawBrief();
 }
 function mpPath(mz,dist2){
