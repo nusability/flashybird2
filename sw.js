@@ -1,7 +1,7 @@
 /* Flashy Bird Zones — offline service worker.
    Network-first: online always serves the freshest deploy, offline falls
    back to the last cached copy. Registered by zones.html only. */
-const CACHE='flashybird-zones-v1';
+const CACHE='flashybird-zones-v2';
 const CORE=[
   './','index.html','zones.html','theme-lab.html',
   'themes/sky.js','themes/jungle.js','themes/candy-glacier.js',
