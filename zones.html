@@ -84,7 +84,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.5.1 zones beta';
+const VERSION='Z0.5.2 zones beta';
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
 
@@ -780,7 +780,7 @@ function spawn(z){
     ents.push({type:'gem', z, x:0, y:wrand(-36,36), seed:wrand(0,9), done:false});
   } else if(roll<(nmkt?0.95:0.92-0.04*gen)){       // GLOWBUG — evasive currency
     ents.push({type:'bug', z, x:0, y:wrand(-30,30), seed:wrand(0,9), ev:0, done:false});
-    if(levelQ&&lvlStat) lvlStat.bugN++;
+    if(levelQ&&lvlStat&&wz<levelQ.len+BZ-30) lvlStat.bugN++;
   } else {                                         // POWER-UP — static weights + distance cooldowns
     // rarity control moved from player-state sniffing (broke determinism)
     // to per-type course-distance cooldowns; on cooldown it becomes a gem
@@ -803,7 +803,7 @@ function spawn(z){
              : CD[kind]*(1-0.35*gen);
     if(wz - (lastSpawnAt[kind]||-1e9) < cd) kind='gem';
     if(kind==='gem') ents.push({type:'gem', z, x:0, y:wrand(-36,36), seed:wrand(0,9), done:false});
-    else { lastSpawnAt[kind]=wz; ents.push({type:kind, z, x:0, y:wrand(-32,32), seed:wrand(0,9), done:false}); if(levelQ&&lvlStat) lvlStat.puN++; }
+    else { lastSpawnAt[kind]=wz; ents.push({type:kind, z, x:0, y:wrand(-32,32), seed:wrand(0,9), done:false}); if(levelQ&&lvlStat&&kind!=='slow'&&kind!=='spin'&&wz<levelQ.len+BZ-30) lvlStat.puN++; }
   }
 }
 
@@ -1094,8 +1094,11 @@ function startLevel(n,k,x2){
 function levelDone(){
   score=Math.floor(scoreF);
   const colTot=lvlStat.puN+lvlStat.bugN, colGot=lvlStat.puGot+lvlStat.bugGot;
-  const colOK = colTot===0 || colGot>=colTot*0.9;
-  lvlStars = 1 + (colOK?1:0) + ((colOK&&lvlStat.bumps===0)?1:0);
+  // forgiving at small totals: missing a single item never voids the loot
+  // star; at scale the 90% rule governs. Loot and flawless are independent
+  // stars, so a flawless run always shows.
+  const colOK = colTot===0 || (colTot-colGot)<=1 || colGot>=colTot*0.9;
+  lvlStars = 1 + (colOK?1:0) + (lvlStat.bumps===0?1:0);
   doneT=0; state='done';
   sfx.levelup(); flashA=Math.max(flashA,0.5); flashHue=130; shake=Math.max(shake,10);
   const arr=zStars(levelQ.n).slice(); ZP.stars[levelQ.n]=arr;
@@ -2020,7 +2023,6 @@ function update(dt){
         else if(e.type==='slow'){
           // paid mercy: reset to starting pace, ramps up again normally — costs points
           if(surfT<=0 && Math.hypot(0-e.x,bird.y-e.y) < 8+BIRD_R){
-            if(levelQ) lvlStat.puGot++;
             spd=250; scoreF=Math.max(0,scoreF-2999); scorePop=1;
             pop('SLOW DOWN!',sx,sy-100*SC,195,1); pop('-2999',sx,sy-60*SC,0,1.3);
             beep(1400,250,0.5,'sine',0.24); flashA=Math.max(flashA,0.3); flashHue=195;
@@ -2029,7 +2031,6 @@ function update(dt){
         else if(e.type==='spin'){
           // devil's bargain: small and dodgeable, big flat payout for 10s of chaos
           if(surfT<=0 && Math.hypot(0-e.x,bird.y-e.y) < 8+BIRD_R){
-            if(levelQ) lvlStat.puGot++;
             viewT=10; gain(4999,'+4999!',sx,sy-100*SC,130,true);
             pop('360°!!!',sx,sy-60*SC,300,1.4);
             sfx.power(); beep(150,2400,0.7,'sawtooth',0.18); flashA=Math.max(flashA,0.45); flashHue=300; shake=Math.max(shake,12);
@@ -3803,7 +3804,7 @@ function loop(ms){
 requestAnimationFrame(loop);
 
 /* offline: the service worker caches the shell; network-first keeps it fresh */
-if('serviceWorker' in navigator){ try{ navigator.serviceWorker.register('sw.js'); }catch(e){} }
+if('serviceWorker' in navigator){ try{ navigator.serviceWorker.register('sw.js').catch(()=>{}); }catch(e){} }
 /* zones app boots on the map */
 try{ for(const k of Object.keys(localStorage)) if(k.startsWith('fb_pace_zone')) localStorage.removeItem(k); }catch(e){}
 state='map'; mpSnapCur();
