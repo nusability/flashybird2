@@ -4,6 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#05010f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Flashy Zones">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="manifest" href="manifest.webmanifest">
 <title>FLASHY BIRD ZONES — beta</title>
 <meta name="description" content="One-tap flappy flight through a flashy, warping space tunnel. Thread spinning gates, dodge sweepers and boulders, chain silver surfboards — instant restarts, endless dopamine.">
 <meta property="og:type" content="website">
@@ -79,7 +84,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.5 zones beta';
+const VERSION='Z0.5.1 zones beta';
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
 
@@ -3797,6 +3802,8 @@ function loop(ms){
 }
 requestAnimationFrame(loop);
 
+/* offline: the service worker caches the shell; network-first keeps it fresh */
+if('serviceWorker' in navigator){ try{ navigator.serviceWorker.register('sw.js'); }catch(e){} }
 /* zones app boots on the map */
 try{ for(const k of Object.keys(localStorage)) if(k.startsWith('fb_pace_zone')) localStorage.removeItem(k); }catch(e){}
 state='map'; mpSnapCur();

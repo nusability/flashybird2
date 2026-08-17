@@ -1,0 +1,14 @@
+{
+  "name": "Flashy Bird Zones",
+  "short_name": "Flashy Zones",
+  "start_url": "zones.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#05010f",
+  "theme_color": "#05010f",
+  "icons": [
+    { "src": "icon-180.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
