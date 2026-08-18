@@ -91,7 +91,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.8.1 zones beta';
+const VERSION='Z0.8.2 zones beta';
 let cv = document.getElementById('c');
 let ctx = cv.getContext('2d');
 
@@ -786,6 +786,9 @@ let spawnHead=0; // z of furthest spawned entity
 /* stars */
 const stars=[];
 for(let i=0;i<110;i++) stars.push({x:rand(-260,260),y:rand(-260,260),z:rand(BZ+10,FAR)});
+/* CROSSWIND indicator dust: in-tunnel motes that ride the gusts */
+const WDUST=[];
+for(let i=0;i<26;i++) WDUST.push({x:rand(-52,52),y:rand(-56,56),z:rand(BZ+10,1600)});
 
 function rockShape(){
   const n=wirand(7,9), pts=[];
@@ -860,16 +863,20 @@ function spawn(z){
       for(let i=0;i<3;i++) rocks.push({x:wrand(24,52)*(wrng()<0.5?-1:1),y:wrand(-50,50),r:wrand(6,10),shape:rockShape(),ra:wrand(0,TAU),rs:wrand(-1.5,1.5),amp:wrand(4,8),ph:wrand(0,TAU),deco:true});
       ents.push({type:'rocks', z, w2, rocks, done:false});
     } else if(kind2==='iris'){                     // IRIS — the hole starts huge and closes
-      // a dashed ghost ring marks the final aperture the whole way in:
-      // readable if you watch it, deceptive if you trust the big opening
+      // the aperture center roams vertically but keeps its horizontal
+      // offset within reach of the flight axis — a sideways hole smaller
+      // than its offset would be mathematically impassable
       const hr = wrand(shrink, shrink+3);
-      const thf = wrand(0,TAU), d = wrand(0,24);
-      ents.push({type:'iris', z, thf, d, x:Math.cos(thf)*d, y:Math.sin(thf)*d, hr, hrX:wrand(20,30), hue:(hue+wrand(180,300))%360, done:false});
-    } else if(kind2==='doors'){                    // ELEVATOR DOORS — the slit rides up/down
-      // two full-width panels; the horizontal slit between them glides
-      // and only settles at its true height at the plane
+      const hx2 = wrand(-1,1)*(hr-10), hy2 = wrand(-28,28);
+      ents.push({type:'iris', z, thf:Math.atan2(hy2,hx2), d:Math.hypot(hx2,hy2), x:hx2, y:hy2, hr, hrX:wrand(20,30), hue:(hue+wrand(180,300))%360, done:false});
+    } else if(kind2==='doors'){                    // BLAST DOORS — closing as you arrive
+      // the slit sits at top, middle, or bottom and the panels close on
+      // approach, reaching their final opening exactly at the plane —
+      // reading WHERE the slit is while it is still wide is the challenge
       const g = wrand(shrink, shrink+4);
-      ents.push({type:'doors', z, d:wrand(-30,30), g, amp:wrand(16,26)*(wrng()<0.5?-1:1), sf:wrand(0.006,0.012)*(1+dlvl()*0.04), done:false});
+      const band = wirand(0,2);
+      const d = (band-1)*28 + wrand(-6,6);
+      ents.push({type:'doors', z, d, g, gX:wrand(22,32), done:false});
     } else {                                       // LASERS — an X pinned to the wall
       // two beams cross on the flight axis: pass above or below the
       // crossing. Emitters ride the wall, the X drifts and slowly spins
@@ -1976,6 +1983,14 @@ function update(dt){
 
   // stars always move
   for(const s of stars){ s.z-=adv*0.85; if(s.z<BZ+8){ s.z+=FAR-BZ; s.x=rand(-260,260); s.y=rand(-260,260);} }
+  if(state==='play' && zTrait('wind')){
+    const wv=Math.sin(t*0.55)*85;
+    for(const p of WDUST){
+      p.z-=adv*0.9; p.y+=wv*0.4*d;
+      if(p.z<BZ+6){ p.z+=1600-BZ; p.x=rand(-52,52); p.y=rand(-56,56); }
+      if(p.y>60) p.y-=120; else if(p.y<-60) p.y+=120;
+    }
+  }
 
   if(state==='play'){
     if(DBG.power) starT=Math.max(starT,1.5);   // ?debug=poweroverwhelming
@@ -2323,15 +2338,38 @@ function render(){
   g.addColorStop(1,'rgba(5,1,15,0)');
   ctx.fillStyle=g; fillFrame();
 
-  // stars (streaks)
+  // stars (streaks). PULSE telegraph: as the surge is about to flip, the
+  // field breathes radially and glows — gated on the pulse's derivative
+  // so it only speaks when the change is actually coming
   ctx.lineCap='round';
+  const pw=(state==='play'&&zTrait('pulse'))?(()=>{ const c=Math.cos(t*1.2);
+    const g2=clamp((Math.abs(c)-0.35)/0.65,0,1);
+    return g2>0.02?{f:1+0.16*c*g2, g:g2}:null; })():null;
   for(const s of stars){
-    const [x1,y1]=proj(s.x,s.y,s.z);
-    const [x2,y2]=proj(s.x,s.y,s.z+ (surfing?60+60*surfStack:60));
-    const a=clamp(1.4 - s.z/1200, 0.05, 0.8);
-    ctx.strokeStyle=`hsla(${(hue+s.z*0.2)%360},80%,80%,${a})`;
-    ctx.lineWidth=clamp(160/s.z,0.4,2.4)*SC;
+    const sx3=pw?s.x*pw.f:s.x, sy3=pw?s.y*pw.f:s.y;
+    const [x1,y1]=proj(sx3,sy3,s.z);
+    const [x2,y2]=proj(sx3,sy3,s.z+ (surfing?60+60*surfStack:60));
+    const a=clamp(1.4 - s.z/1200, 0.05, 0.8)*(pw?1+0.7*pw.g:1);
+    ctx.strokeStyle=`hsla(${(hue+s.z*0.2)%360},80%,${80+(pw?12*pw.g:0)}%,${Math.min(a,1)})`;
+    ctx.lineWidth=clamp(160/s.z,0.4,2.4)*(pw?1+0.7*pw.g:1)*SC;
     ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+  }
+  // CROSSWIND telegraph: dust motes light up and stream with the gust
+  // exactly while the wind is turning; quiet the rest of the time
+  if(state==='play' && zTrait('wind')){
+    const cw=Math.cos(t*0.55);
+    const gI=clamp((Math.abs(cw)-0.35)/0.65,0,1);
+    if(gI>0.02){
+      ctx.globalCompositeOperation='lighter';
+      for(const p of WDUST){
+        const [x1,y1]=projW(p.x,p.y,p.z);
+        const [x2,y2]=projW(p.x,p.y+(cw>0?7:-7),p.z);
+        ctx.strokeStyle=`hsla(190,100%,80%,${0.5*gI*clamp(1.5-p.z/1200,0.1,1)})`;
+        ctx.lineWidth=clamp(190/p.z,0.5,2.2)*SC;
+        ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+      }
+      ctx.globalCompositeOperation='source-over';
+    }
   }
 
   // build z-sorted draw list: tunnel rings + entities
@@ -2540,11 +2578,11 @@ function drawEnt(e){
   }
   else if(e.type==='iris'){
     const [cx,cy,k]=projW(0,0,zz);
-    // aperture closes on approach and lands at its true size at the plane;
-    // the dashed ghost ring shows the final aperture the whole way in
-    const prog=clamp((zz-BZ)/1300,0,1);
+    // aperture holds wide open and only starts closing in the last
+    // stretch, landing at its true size at the plane — no telegraph
+    const prog=clamp((zz-BZ)/650,0,1);
     const [hx,hy]=projW(Math.cos(e.thf)*e.d, Math.sin(e.thf)*e.d, zz);
-    const hrNow=(e.hr+e.hrX*prog)*k, hrEnd=e.hr*k, rimAng=rot+zz*twist;
+    const hrNow=(e.hr+e.hrX*prog)*k, rimAng=rot+zz*twist;
     const a=clamp(1.6-zz/900,0.1,0.92);
     ringPath(cx,cy,R*k,rimAng,16);
     ctx.moveTo(hx+hrNow,hy);
@@ -2559,40 +2597,38 @@ function drawEnt(e){
     ctx.shadowColor=`hsl(${e.hue},100%,60%)`; ctx.shadowBlur=18*SC*a;
     ctx.beginPath(); ctx.arc(hx,hy,hrNow,0,TAU); ctx.stroke();
     ctx.shadowBlur=0;
-    if(prog>0.02){
-      ctx.strokeStyle=`hsla(${e.hue},100%,82%,${a*0.55})`;
-      ctx.lineWidth=1.6*SC; ctx.setLineDash([5,7]); ctx.lineDashOffset=-t*30;
-      ctx.beginPath(); ctx.arc(hx,hy,hrEnd,0,TAU); ctx.stroke();
-      ctx.setLineDash([]);
-    }
   }
   else if(e.type==='doors'){
     const [cx,cy,k]=projW(0,0,zz);
     const a=clamp(1.6-zz/900,0.1,0.95);
-    const gc=e.d + e.amp*Math.sin(e.sf*(zz-BZ));
+    // blast doors: the slit stays put, the panels close on approach and
+    // reach the final opening exactly at the plane
+    const prog=clamp((zz-BZ)/1100,0,1);
+    const gNow=e.g + e.gX*prog;
     const rimAng=rot+zz*twist;
-    const [,gyA]=projW(0,gc-e.g,zz), [,gyB]=projW(0,gc+e.g,zz);
+    const [,gyA]=projW(0,e.d-gNow,zz), [,gyB]=projW(0,e.d+gNow,zz);
     const gy1=Math.min(gyA,gyB), gy2=Math.max(gyA,gyB);
-    // steel panels fill the whole ring except the slit (evenodd carve)
-    ringPath(cx,cy,R*k,rimAng,16);
-    ctx.rect(cx-(R+10)*k, gy1, 2*(R+10)*k, gy2-gy1);
-    ctx.fillStyle=`hsla(215,32%,${26+Math.sin(t*4)*3}%,${a})`;
-    ctx.fill('evenodd');
-    ctx.strokeStyle=`hsla(215,60%,55%,${a*0.7})`;
-    ctx.lineWidth=clamp(900/zz,1,7)*SC;
-    ringPath(cx,cy,R*k,rimAng,16); ctx.stroke();
-    // glowing slit edges, clipped to the ring so they end on the wall
+    // panels and edges all live inside a ring clip — nothing pokes past
+    // the tunnel wall
     ctx.save();
     ringPath(cx,cy,R*k,rimAng,16); ctx.clip();
+    const span=(R+12)*k;
+    ctx.fillStyle=`hsla(215,32%,${26+Math.sin(t*4)*3}%,${a})`;
+    ctx.fillRect(cx-span, cy-span, span*2, gy1-(cy-span));
+    ctx.fillRect(cx-span, gy2, span*2, cy+span-gy2);
     const pulse=0.7+Math.sin(t*9)*0.3;
     ctx.lineCap='round';
     ctx.strokeStyle=`hsla(48,100%,${58+pulse*14}%,${a})`;
     ctx.lineWidth=clamp(500/zz,1,5)*SC;
     ctx.shadowColor='hsl(48,100%,60%)'; ctx.shadowBlur=14*SC*a;
-    ctx.beginPath(); ctx.moveTo(cx-(R+10)*k,gy1); ctx.lineTo(cx+(R+10)*k,gy1);
-    ctx.moveTo(cx-(R+10)*k,gy2); ctx.lineTo(cx+(R+10)*k,gy2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx-span,gy1); ctx.lineTo(cx+span,gy1);
+    ctx.moveTo(cx-span,gy2); ctx.lineTo(cx+span,gy2); ctx.stroke();
     ctx.shadowBlur=0;
     ctx.restore();
+    // rim stroke sits on top, unclipped, so the wall ring stays crisp
+    ctx.strokeStyle=`hsla(215,60%,55%,${a*0.7})`;
+    ctx.lineWidth=clamp(900/zz,1,7)*SC;
+    ringPath(cx,cy,R*k,rimAng,16); ctx.stroke();
   }
   else if(e.type==='laser'){
     const a=clamp(1.6-zz/900,0.1,0.95);
@@ -2619,6 +2655,21 @@ function drawEnt(e){
       ctx.fillStyle=`hsla(350,60%,80%,${a})`;
       ctx.beginPath(); ctx.arc(x1,y1,3.2*k2,0,TAU); ctx.fill();
       ctx.beginPath(); ctx.arc(x2,y2,3.2*k2,0,TAU); ctx.fill();
+    }
+    { // sparks fly where the beams cross
+      const [xc,yc,kc]=projW(0,gc,zz);
+      ctx.globalCompositeOperation='lighter';
+      ctx.lineCap='round';
+      for(let i=0;i<4;i++){
+        const a2=rand(0,TAU), len2=rand(3,10)*kc;
+        ctx.strokeStyle=`hsla(${rand(28,55)},100%,${rand(65,88)}%,${a*rand(0.4,1)})`;
+        ctx.lineWidth=rand(0.8,2)*kc*SC;
+        ctx.beginPath(); ctx.moveTo(xc,yc);
+        ctx.lineTo(xc+Math.cos(a2)*len2, yc+Math.sin(a2)*len2); ctx.stroke();
+      }
+      ctx.fillStyle=`hsla(45,100%,${80+Math.sin(t*40)*15}%,${a})`;
+      ctx.beginPath(); ctx.arc(xc,yc,2.4*kc*(0.8+rand(0,0.5)),0,TAU); ctx.fill();
+      ctx.globalCompositeOperation='source-over';
     }
   }
   else if(e.type==='rocks'){
