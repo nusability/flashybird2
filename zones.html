@@ -518,9 +518,11 @@ function airBurst(at,dur,f0,f1,vol,q){
   g.gain.exponentialRampToValueAtTime(0.0005,at+dur);
   s.connect(bp); bp.connect(g); g.connect(master); s.start(at); s.stop(at+dur+0.02);
 }
-// CROSSWIND: the warp sweep. Two detuned saws glide the whole band through a
-// resonant lowpass — up to spin up, down to drop out — with a thin skin of
-// air over the top so it still reads as wind rather than a siren.
+// CROSSWIND: the warp sweep. A minor trichord glides the whole band in
+// parallel through a resonant lowpass — up to spin up, down to drop out —
+// with a thin skin of air over the top so it reads as wind, not a siren.
+// The third is what tells this voice apart from PULSE's open fifths.
+const WARP_TRI=[[1,1],[Math.pow(2,3/12),0.72],[Math.pow(2,7/12),0.6]];
 function warpSweep(up,vol){
   if(!ac||muted) return;
   // 3s: the gust gate stays open ~4.4s, so the sweep can take its time
@@ -534,12 +536,15 @@ function warpSweep(up,vol){
   g.gain.linearRampToValueAtTime(vol,at+(up?dur*0.62:0.18));
   g.gain.setValueAtTime(vol,at+dur*0.78);
   g.gain.exponentialRampToValueAtTime(0.0004,at+dur);
-  for(const c of [-7,7]){
-    const o=ac.createOscillator(); o.type='sawtooth';
-    const dt2=Math.pow(2,c/1200);
-    o.frequency.setValueAtTime(f0*dt2,at);
-    o.frequency.exponentialRampToValueAtTime(f1*dt2,at+dur*0.9);
-    o.connect(fl); o.start(at); o.stop(at+dur+0.05);
+  for(const [iv,lv] of WARP_TRI){
+    const vg=ac.createGain(); vg.gain.value=lv*0.5; vg.connect(fl);
+    for(const c of [-6,6]){                       // each note doubled for width
+      const o=ac.createOscillator(); o.type='sawtooth';
+      const dt2=Math.pow(2,c/1200)*iv;
+      o.frequency.setValueAtTime(f0*dt2,at);
+      o.frequency.exponentialRampToValueAtTime(f1*dt2,at+dur*0.92);
+      o.connect(vg); o.start(at); o.stop(at+dur+0.05);
+    }
   }
   fl.connect(g); g.connect(master);
   airBurst(at,dur,f0*1.6,f1*1.6,vol*0.18,1.6);
@@ -571,7 +576,7 @@ function swell(up,vol){
 }
 const sfx = {
   flap(){ beep(340,620,0.09,'square',0.10); },
-  gust(up){ warpSweep(up,0.09); },
+  gust(up){ warpSweep(up,0.11); },
   surge(up){ swell(up, up?0.16:0.11); },
   ding(c){ beep(560*Math.pow(1.045,Math.min(c,24)),840*Math.pow(1.045,Math.min(c,24)),0.16,'triangle',0.22); },
   gem(){ beep(880,1760,0.12,'sine',0.2); beep(1320,1320,0.18,'triangle',0.1); },
