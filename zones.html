@@ -91,7 +91,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.8.4 zones beta';
+const VERSION='Z0.8.6 zones beta';
 let cv = document.getElementById('c');
 let ctx = cv.getContext('2d');
 
@@ -788,7 +788,7 @@ const stars=[];
 for(let i=0;i<110;i++) stars.push({x:rand(-260,260),y:rand(-260,260),z:rand(BZ+10,FAR)});
 /* CROSSWIND indicator dust: in-tunnel motes that ride the gusts */
 const WDUST=[];
-for(let i=0;i<90;i++) WDUST.push({x:rand(-58,58),y:rand(-56,56),z:rand(BZ+10,1600)});
+for(let i=0;i<90;i++) WDUST.push({x:rand(-58,58),y:rand(-56,56),z:rand(BZ+10,1250)});
 
 function rockShape(){
   const n=wirand(7,9), pts=[];
@@ -1986,8 +1986,8 @@ function update(dt){
   if(state==='play' && zTrait('wind')){
     const wv=Math.sin(t*0.55)*85;
     for(const p of WDUST){
-      p.z-=adv*0.9; p.y+=wv*0.4*d;
-      if(p.z<BZ+6){ p.z+=1600-BZ; p.x=rand(-52,52); p.y=rand(-56,56); }
+      p.z-=adv*0.9; p.y+=wv*1.3*d;
+      if(p.z<BZ+6){ p.z+=1250-BZ; p.x=rand(-52,52); p.y=rand(-56,56); }
       if(p.y>60) p.y-=120; else if(p.y<-60) p.y+=120;
     }
   }
@@ -2363,15 +2363,22 @@ function render(){
     const gI=clamp((Math.abs(cw)-0.35)/0.65,0,1);
     if(gI>0.02){
       ctx.globalCompositeOperation='lighter';
+      ctx.lineCap='round'; ctx.lineJoin='round';
+      const dir=cw>0?1:-1;
       for(const p of WDUST){
         const fade=clamp(1.6-p.z/1100,0.15,1);
         const [x1,y1,k1]=projW(p.x,p.y,p.z);
-        const [x2,y2]=projW(p.x,p.y+(cw>0?13:-13),p.z);
-        ctx.strokeStyle=`hsla(190,100%,78%,${0.9*gI*fade})`;
-        ctx.lineWidth=clamp(240/p.z,0.8,3.2)*SC;
-        ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
-        ctx.fillStyle=`hsla(185,100%,92%,${0.95*gI*fade})`;
-        ctx.beginPath(); ctx.arc(x2,y2,clamp(150/p.z,0.6,2.4)*SC,0,TAU); ctx.fill();
+        const s2=clamp(560/p.z,3,11)*SC;
+        ctx.strokeStyle=`hsla(190,100%,80%,${0.9*gI*fade})`;
+        ctx.lineWidth=clamp(320/p.z,1.3,3.8)*SC;
+        for(let c2=0;c2<2;c2++){
+          const yc2=y1 + dir*(c2*s2*1.1 + Math.sin(t*7+p.x)*s2*0.3);
+          ctx.beginPath();
+          ctx.moveTo(x1-s2, yc2-dir*s2*0.8);
+          ctx.lineTo(x1, yc2);
+          ctx.lineTo(x1+s2, yc2-dir*s2*0.8);
+          ctx.stroke();
+        }
       }
       ctx.globalCompositeOperation='source-over';
     }
