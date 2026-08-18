@@ -1256,7 +1256,7 @@ function exitToMap(){
 
 
 /* the zone briefing: what this zone's twists actually do — auto-shown once
-   per new zone, reopened by tapping any zone plate's lightning line */
+   per new zone, reopened by tapping any zone plate's twist line */
 function mpDrawBrief(){
   if(!mpBrief) return;
   const US=uiS(), trs=mpBrief.traits;
@@ -1271,7 +1271,7 @@ function mpDrawBrief(){
   ctx.textAlign='center'; ctx.textBaseline='middle';
   ctx.font=`900 ${Math.round(17*US)}px system-ui,sans-serif`;
   ctx.fillStyle='#fff'; ctx.shadowColor='hsl(48,100%,55%)'; ctx.shadowBlur=10;
-  ctx.fillText('⚡ ZONE '+mpBrief.n+' TWIST'+(trs.length>1?'S':''), W/2, y0+26*US);
+  ctx.fillText('ZONE '+mpBrief.n+' TWIST'+(trs.length>1?'S':''), W/2, y0+26*US);
   ctx.shadowBlur=0;
   ctx.font=`700 ${Math.round(11*US)}px system-ui,sans-serif`;
   ctx.fillStyle='rgba(255,255,255,0.55)';
@@ -1374,7 +1374,7 @@ function doneFire(act){
 }
 function mpS0(){ return W/G.UNIT_W; }
 /* the zone plate sits at the TOP of its zone, above the maze's top lane —
-   title first, its ⚡ twist line under it, both inside PLATE_H of tap band */
+   title first, its TWIST line under it, both inside PLATE_H of tap band */
 const PLATE_Y=25, PLATE_TRAIT_Y=40, PLATE_H=52;
 
 /* ---------------- the zone map ---------------- */
@@ -1516,7 +1516,7 @@ function mpTap(ux,wy){
     }
   }
   if(zi===mpFocusZi && ly<PLATE_H && zoneTraits(z.n).length){
-    mpBrief={n:z.n, traits:zoneTraits(z.n)}; return;      // ⚡ line explains itself
+    mpBrief={n:z.n, traits:zoneTraits(z.n)}; return;      // twist line explains itself
   }
   const TH3=zoneInfo(z.n).TH;                // empty-space taps reach the theme
   if(TH3.onTap) TH3.onTap(ux,ly,zoneInfo(z.n).P,t);
@@ -1665,15 +1665,28 @@ function mpDraw(){
   muteRect=cornerBtn(12+S3/2, 12+SAFE_T+S3/2, S3, muted?'MUTED':'SOUND', 190, false, soundIcon);
   nestRect=cornerBtn(W-12-S3/2, 12+SAFE_T+S3/2, S3, 'NEST', (hue+120)%360, nestAlert(), nestIcon, String(bugs));
   deepRect=pillBtn(14+66*US, barY, 132*US, 40*US, 'DEEP TUNNEL', 210, false);
-  // the update pill owns the bottom-right corner (only the version number
-  // fits it); a live jump-back-to-current pill stacks above rather than
-  // sharing the row, so neither button ever moves under a thumb
-  if(updReady){ updRect=pillBtn(W-14-88*US, barY, 176*US, 38*US, '⬆ UPDATE '+updReady.split(' ')[0], 130, true); }
-  else updRect=null;
   const curIdx=win.findIndex(z2=>z2.vis==='current');
   if(mpSnapZi!==curIdx || Math.abs(mpCam-mpZoneCam(win,curIdx))>G.ZONE_H*0.6){
-    mpTopRect=pillBtn(W-14-72*US, barY-(updReady?48*US:0), 144*US, 40*US, '▲ CURRENT ZONE', 48, false);
+    mpTopRect=pillBtn(W-14-72*US, barY, 144*US, 40*US, '▲ CURRENT ZONE', 48, false);
   } else mpTopRect=null;
+  // the update pill hangs under the focused zone's title plate and is only
+  // as wide as its own label; the clamps keep it clear of the corner
+  // buttons above and the bottom bar below however far the map is scrolled
+  if(updReady){
+    const lbl='UPDATE '+updReady.split(' ')[0], ubh=38*US;
+    ctx.font=`800 ${Math.round(ubh*0.38)}px system-ui,sans-serif`;
+    const ubw=Math.min(W-32, ctx.measureText(lbl).width+36*US);
+    const plateBot=(mpZoneTop(win,mpFocusZi)+PLATE_H-mpCam)*mpS;
+    const ucy=clamp(plateBot+22*US+ubh/2, SAFE_T+12+S3+14+ubh/2, barY-52*US);
+    // floating over the map, not over a dark bar: lay an opaque plate down
+    // first so the label reads against the tunnel
+    const usc=pressedIn([W/2-ubw/2,ucy-ubh/2,ubw,ubh])?0.93:1;
+    ctx.save(); ctx.translate(W/2,ucy); ctx.scale(usc,usc);
+    ctx.fillStyle='rgba(5,1,15,0.88)'; ctx.beginPath();
+    if(ctx.roundRect) ctx.roundRect(-ubw/2,-ubh/2,ubw,ubh,ubh/2); else ctx.rect(-ubw/2,-ubh/2,ubw,ubh);
+    ctx.fill(); ctx.restore();
+    updRect=pillBtn(W/2, ucy, ubw, ubh, lbl, 130, true);
+  } else updRect=null;
   mpDrawBrief();
 }
 function mpPath(mz,dist2){
@@ -1766,9 +1779,9 @@ function mpZoneUI(win,zi){
     if(ztr.length){
       ctx.font='800 9px system-ui,sans-serif'; ctx.textAlign='center';
       ctx.fillStyle='hsla('+P.hue+',90%,75%,0.9)';
-      // dark halo: the ⚡ line now crosses the tunnel's bright exit column
+      // dark halo: the twist line now crosses the tunnel's bright exit column
       ctx.shadowColor='rgba(5,1,15,0.9)'; ctx.shadowBlur=6;
-      ctx.fillText('⚡ '+ztr.map(k=>ZTRAITS[k].name).join(' · '),cx,PLATE_TRAIT_Y);
+      ctx.fillText('TWIST'+(ztr.length>1?'S':'')+' · '+ztr.map(k=>ZTRAITS[k].name).join(' · '),cx,PLATE_TRAIT_Y);
       ctx.shadowBlur=0;
     }
   }
@@ -1792,7 +1805,7 @@ function mpVeil(win,zi){
     ctx.textAlign='center';
     const ztr2=zoneTraits(z.n);
     ctx.shadowColor='rgba(5,1,15,0.9)'; ctx.shadowBlur=6;
-    ctx.fillText('clear zone '+(z.n-1)+' to light the way'+(ztr2.length?'  ·  ⚡ '+ztr2.map(k=>ZTRAITS[k].name).join(' · '):''),cx,PLATE_TRAIT_Y);
+    ctx.fillText('clear zone '+(z.n-1)+' to light the way'+(ztr2.length?'  ·  TWIST'+(ztr2.length>1?'S':'')+' · '+ztr2.map(k=>ZTRAITS[k].name).join(' · '):''),cx,PLATE_TRAIT_Y);
     ctx.shadowBlur=0;
   } else {
     const p=0.28+Math.sin(t*1.8)*0.1;
