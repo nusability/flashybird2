@@ -91,7 +91,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.8.8 zones beta';
+const VERSION='Z0.8.9 zones beta';
 let cv = document.getElementById('c');
 let ctx = cv.getContext('2d');
 
@@ -497,51 +497,87 @@ function whoosh(dur,vol){
 }
 /* ---- trait telegraph voices ----
    The CROSSWIND dust and the PULSE star-breathe are visual-only tells that
-   are easy to miss mid-flight, so each gets a voice on its rising edge.  */
-// CROSSWIND: air. Looped noise under a bandpass that sweeps the way the
-// gust blows, with a warp-drop tone falling out underneath it.
-function gustAir(up,vol){
-  if(!ac||muted||noiseBuf===null) return;
-  const at=ac.currentTime, dur=0.95;
-  const s=ac.createBufferSource(); s.buffer=noiseBuf; s.loop=true;
-  const bp=ac.createBiquadFilter(); bp.type='bandpass'; bp.Q.value=1.15;
-  bp.frequency.setValueAtTime(up?240:1600,at);
-  bp.frequency.exponentialRampToValueAtTime(up?1600:240,at+dur*0.78);
+   are easy to miss mid-flight, so each twist gets a voice: one timbre per
+   twist, run forwards for the engage half and backwards for the disengage
+   half. Both live in the 200-2000Hz band on purpose — the same phone
+   speakers that swallowed the old bass line swallow anything lower, which
+   left only the noise layer audible and the whole thing read as a rustle. */
+// one-shot air, generated at the length it needs: looping the shared 0.1s
+// noise buffer beat at 10Hz, and that beat WAS the rustle
+function airBurst(at,dur,f0,f1,vol,q){
+  if(!ac) return;
+  const n=Math.ceil(ac.sampleRate*dur), buf=ac.createBuffer(1,n,ac.sampleRate), d=buf.getChannelData(0);
+  for(let i=0;i<n;i++) d[i]=rand(-1,1);
+  const s=ac.createBufferSource(); s.buffer=buf;
+  const bp=ac.createBiquadFilter(); bp.type='bandpass'; bp.Q.value=q;
+  bp.frequency.setValueAtTime(f0,at);
+  bp.frequency.exponentialRampToValueAtTime(f1,at+dur*0.85);
   const g=ac.createGain();
   g.gain.setValueAtTime(0.0001,at);
-  g.gain.linearRampToValueAtTime(vol,at+dur*0.32);
+  g.gain.linearRampToValueAtTime(vol,at+dur*0.3);
   g.gain.exponentialRampToValueAtTime(0.0005,at+dur);
-  s.connect(bp); bp.connect(g); g.connect(master);
-  s.start(at); s.stop(at+dur+0.05);
-  beep(up?95:230, up?190:65, dur*0.8, 'sine', vol*0.5, at);
+  s.connect(bp); bp.connect(g); g.connect(master); s.start(at); s.stop(at+dur+0.02);
 }
-// PULSE: a pocket-sized deep note. Six saws start spread and slide onto a
-// stacked-fifth chord as the tunnel inflates; the exhale runs it backwards,
-// quieter, so the pair breathes with the surge instead of announcing itself.
-const SWELL=[55,82.5,110,165,220,330];
+// CROSSWIND: the warp sweep. A minor trichord glides the whole band in
+// parallel through a resonant lowpass — up to spin up, down to drop out —
+// with a thin skin of air over the top so it reads as wind, not a siren.
+// The third is what tells this voice apart from PULSE's open fifths.
+const WARP_TRI=[[1,1],[Math.pow(2,3/12),0.72],[Math.pow(2,7/12),0.6]];
+function warpSweep(up,vol){
+  if(!ac||muted) return;
+  // 3s: the gust gate stays open ~4.4s, so the sweep can take its time
+  const at=ac.currentTime, dur=3.0, f0=up?240:1500, f1=up?1500:240;
+  const g=ac.createGain(), fl=ac.createBiquadFilter();
+  fl.type='lowpass'; fl.Q.value=9;              // the resonance is the whistle
+  fl.frequency.setValueAtTime(f0*2.2,at);
+  fl.frequency.exponentialRampToValueAtTime(f1*2.2,at+dur*0.92);
+  g.gain.setValueAtTime(0.0001,at);
+  // engage winds up slowly and holds; disengage hits and coasts down
+  g.gain.linearRampToValueAtTime(vol,at+(up?dur*0.62:0.18));
+  g.gain.setValueAtTime(vol,at+dur*0.78);
+  g.gain.exponentialRampToValueAtTime(0.0004,at+dur);
+  for(const [iv,lv] of WARP_TRI){
+    const vg=ac.createGain(); vg.gain.value=lv*0.5; vg.connect(fl);
+    for(const c of [-6,6]){                       // each note doubled for width
+      const o=ac.createOscillator(); o.type='sawtooth';
+      const dt2=Math.pow(2,c/1200)*iv;
+      o.frequency.setValueAtTime(f0*dt2,at);
+      o.frequency.exponentialRampToValueAtTime(f1*dt2,at+dur*0.92);
+      o.connect(vg); o.start(at); o.stop(at+dur+0.05);
+    }
+  }
+  fl.connect(g); g.connect(master);
+  airBurst(at,dur,f0*1.6,f1*1.6,vol*0.18,1.6);
+}
+// PULSE: a pocket deep note. Six saws scattered below a stacked-fifth chord
+// converge onto it as the tunnel draws in; the elongation runs the same
+// cluster in reverse, sliding apart and downward as the filter shuts.
+const SWELL=[220,330,440,660,880,1320];
 function swell(up,vol){
   if(!ac||muted) return;
-  const at=ac.currentTime, dur=up?0.6:0.5;
+  // 2.4s, not 3: the pulse gate re-fires every 2.6s, so a longer voice would
+  // stack on its own tail. Consecutive breaths butt up instead of piling up.
+  const at=ac.currentTime, dur=up?2.4:2.2;
   const g=ac.createGain(), fl=ac.createBiquadFilter();
-  fl.type='lowpass'; fl.Q.value=0.9;
-  fl.frequency.setValueAtTime(up?380:2600,at);
-  fl.frequency.exponentialRampToValueAtTime(up?2800:320,at+dur);
+  fl.type='lowpass'; fl.Q.value=1.3;
+  fl.frequency.setValueAtTime(up?700:4200,at);
+  fl.frequency.exponentialRampToValueAtTime(up?4200:600,at+dur*0.95);
   g.gain.setValueAtTime(0.0001,at);
-  g.gain.exponentialRampToValueAtTime(vol,at+(up?dur*0.75:0.06));
+  g.gain.exponentialRampToValueAtTime(vol,at+(up?dur*0.78:0.22));
   g.gain.exponentialRampToValueAtTime(0.0004,at+dur+0.2);
   SWELL.forEach((f,i)=>{
     const o=ac.createOscillator(); o.type='sawtooth';
-    o.frequency.setValueAtTime(up?f*(0.5+i*0.14):f*(1.6-i*0.09),at);
-    o.frequency.exponentialRampToValueAtTime(up?f:f*0.5,at+dur);
-    const vg=ac.createGain(); vg.gain.value=1/(1+i*0.6);   // top voices sit back
-    o.connect(vg); vg.connect(fl); o.start(at); o.stop(at+dur+0.24);
+    o.frequency.setValueAtTime(up?f*(0.55+i*0.09):f,at);
+    o.frequency.exponentialRampToValueAtTime(up?f:f*(0.5+i*0.05),at+dur*0.88);
+    const vg=ac.createGain(); vg.gain.value=0.5/(1+i*0.35);   // top voices sit back
+    o.connect(vg); vg.connect(fl); o.start(at); o.stop(at+dur+0.2);
   });
   fl.connect(g); g.connect(master);
 }
 const sfx = {
   flap(){ beep(340,620,0.09,'square',0.10); },
-  gust(up){ gustAir(up,0.11); },
-  surge(up){ swell(up, up?0.085:0.04); },
+  gust(up){ warpSweep(up,0.11); },
+  surge(up){ swell(up, up?0.16:0.11); },
   ding(c){ beep(560*Math.pow(1.045,Math.min(c,24)),840*Math.pow(1.045,Math.min(c,24)),0.16,'triangle',0.22); },
   gem(){ beep(880,1760,0.12,'sine',0.2); beep(1320,1320,0.18,'triangle',0.1); },
   power(){ [523,659,784,1047].forEach((f,i)=>setTimeout(()=>beep(f,f,0.14,'square',0.16),i*70)); },
