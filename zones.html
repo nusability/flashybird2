@@ -91,7 +91,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.8.0 zones beta';
+const VERSION='Z0.8.1 zones beta';
 let cv = document.getElementById('c');
 let ctx = cv.getContext('2d');
 
@@ -1143,7 +1143,7 @@ const ZTRAITS={
   skittish:{name:'SKITTISH',     desc:'loot flees — magnet beats it'},
   wind:    {name:'CROSSWIND',    desc:'gusts shove the bird'},
   blackout:{name:'BLACKOUT',     desc:'fly by headlight'},
-  topsy:   {name:'TOPSY',        desc:'gravity flipped — flaps push DOWN'},
+  topsy:   {name:'TOPSY',        desc:'gravity flipped — flaps push DOWN', min:10},
   phantom: {name:'PHANTOM',      desc:'obstacles fade in waves — near ones stay lit'},
 };
 const ZBAN=[['blackout','wind'],['blackout','swarm'],['blackout','sticky'],['blackout','phantom']];
@@ -1154,6 +1154,7 @@ function zoneTraits(n){
   while(out.length<b && guard++<40){
     const k=keys[(r()*keys.length)|0];
     if(out.includes(k)) continue;
+    if((ZTRAITS[k].min||0)>n) continue;       // harsh twists wait for later zones
     if(ZBAN.some(p=>(k===p[0]&&out.includes(p[1]))||(k===p[1]&&out.includes(p[0])))) continue;
     out.push(k);
   }
