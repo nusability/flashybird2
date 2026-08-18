@@ -91,7 +91,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.8.6 zones beta';
+const VERSION='Z0.8.7 zones beta';
 let cv = document.getElementById('c');
 let ctx = cv.getContext('2d');
 
@@ -1354,17 +1354,28 @@ function drawDone(){
     doneMapRect=pillBtn(CX+bw3/4+4, CY+64*SC+56*uiS(), bw3/2-8, 40*uiS(), 'ZONE MAP', 260, false);
   } else { doneNextRect=null; doneMapRect=null; doneRetryRect=null; }
 }
-function doneTap(x,y){
+// the level-clear buttons arm on pointerdown and fire on pointerup, so the
+// pill actually shows its pressed state (and a slide-off cancels)
+function doneArm(x,y){
   const inR=r=> r&&x>=r[0]&&x<=r[0]+r[2]&&y>=r[1]&&y<=r[1]+r[3];
-  const q=levelQ;
-  if(inR(doneRetryRect)){ startLevel(q.n, q.k, q.x2); return; }
-  if(inR(doneMapRect)){ exitToMap(); return; }
-  if(inR(doneNextRect) || doneT>0.6){
-    if(q.x2 || q.k===7){ exitToMap(); }
-    else startLevel(q.n, q.k+1, false);
-  }
+  if(inR(doneRetryRect)) return {act:'dretry', r:doneRetryRect};
+  if(inR(doneMapRect))   return {act:'dmap',   r:doneMapRect};
+  if(inR(doneNextRect))  return {act:'dnext',  r:doneNextRect};
+  // once the celebration has played out, a tap anywhere means "carry on"
+  if(doneT>0.6) return {act:'dnext', r:[0,0,W,H]};
+  return null;
+}
+function doneFire(act){
+  const q=levelQ; if(!q) return;
+  if(act==='dretry'){ startLevel(q.n, q.k, q.x2); return; }
+  if(act==='dmap'){ exitToMap(); return; }
+  if(q.x2 || q.k===7){ exitToMap(); }
+  else startLevel(q.n, q.k+1, false);
 }
 function mpS0(){ return W/G.UNIT_W; }
+/* the zone plate sits at the TOP of its zone, above the maze's top lane —
+   title first, its ⚡ twist line under it, both inside PLATE_H of tap band */
+const PLATE_Y=25, PLATE_TRAIT_Y=40, PLATE_H=52;
 
 /* ---------------- the zone map ---------------- */
 const mpMazeCache={}, mpDressCache={};
@@ -1484,7 +1495,7 @@ function mpTap(ux,wy){
     if(hit(deepRect)){ state='title'; return; }
     if(hit(mpTopRect)){ mpSnapCur(); return; }
   }
-  if(z.vis==='next' && zi===mpFocusZi && ly>G.ZONE_H-22 && zoneTraits(z.n).length){
+  if(z.vis==='next' && zi===mpFocusZi && ly<PLATE_H && zoneTraits(z.n).length){
     mpBrief={n:z.n, traits:zoneTraits(z.n)}; return;      // peek the coming twists
   }
   if(z.vis==='next'||z.vis==='hidden'){ mpSay('the tunnel ahead is still dark…',260); return; }
@@ -1504,7 +1515,7 @@ function mpTap(ux,wy){
       return;
     }
   }
-  if(zi===mpFocusZi && ly>G.ZONE_H-22 && zoneTraits(z.n).length){
+  if(zi===mpFocusZi && ly<PLATE_H && zoneTraits(z.n).length){
     mpBrief={n:z.n, traits:zoneTraits(z.n)}; return;      // ⚡ line explains itself
   }
   const TH3=zoneInfo(z.n).TH;                // empty-space taps reach the theme
@@ -1650,19 +1661,19 @@ function mpDraw(){
   }
   ctx.restore();
   /* chrome (screen space) */
-  const US=uiS(), S3=52*US;
-  if(updReady){ updRect=pillBtn(W/2, 26+14*US+SAFE_T, 190*US, 38*US, '⬆ UPDATE '+updReady, 130, true); }
-  else updRect=null;
+  const US=uiS(), S3=52*US, barY=H-40*US-SAFE_B;
   muteRect=cornerBtn(12+S3/2, 12+SAFE_T+S3/2, S3, muted?'MUTED':'SOUND', 190, false, soundIcon);
   nestRect=cornerBtn(W-12-S3/2, 12+SAFE_T+S3/2, S3, 'NEST', (hue+120)%360, nestAlert(), nestIcon, String(bugs));
-  deepRect=pillBtn(14+66*US, H-40*US-SAFE_B, 132*US, 40*US, 'DEEP TUNNEL', 210, false);
+  deepRect=pillBtn(14+66*US, barY, 132*US, 40*US, 'DEEP TUNNEL', 210, false);
+  // the update pill owns the bottom-right corner (only the version number
+  // fits it); a live jump-back-to-current pill stacks above rather than
+  // sharing the row, so neither button ever moves under a thumb
+  if(updReady){ updRect=pillBtn(W-14-88*US, barY, 176*US, 38*US, '⬆ UPDATE '+updReady.split(' ')[0], 130, true); }
+  else updRect=null;
   const curIdx=win.findIndex(z2=>z2.vis==='current');
   if(mpSnapZi!==curIdx || Math.abs(mpCam-mpZoneCam(win,curIdx))>G.ZONE_H*0.6){
-    mpTopRect=pillBtn(W-14-72*US, H-40*US-SAFE_B, 144*US, 40*US, '▲ CURRENT ZONE', 48, false);
+    mpTopRect=pillBtn(W-14-72*US, barY-(updReady?48*US:0), 144*US, 40*US, '▲ CURRENT ZONE', 48, false);
   } else mpTopRect=null;
-  ctx.textAlign='right'; ctx.textBaseline='middle';
-  ctx.font='700 10px system-ui,sans-serif'; ctx.fillStyle='rgba(255,255,255,0.45)';
-  ctx.fillText('v'+VERSION+'   ·   ★ '+ZP.total+'   ·   swipe · tap a level',W-12,H-20-SAFE_B);
   mpDrawBrief();
 }
 function mpPath(mz,dist2){
@@ -1749,13 +1760,16 @@ function mpZoneUI(win,zi){
     let plate='ZONE '+z.n+' · '+TH.name;
     if(z.vis==='done') plate+='  ★'+st.reduce((a,b)=>a+b,0)+'/21';
     ctx.fillStyle=P.text; ctx.shadowColor='hsla('+P.hue+',100%,60%,1)'; ctx.shadowBlur=9;
-    mpWavy(plate,cx,G.ZONE_H-24,G.TEXT.zone-2);
+    mpWavy(plate,cx,PLATE_Y,G.TEXT.zone-2);
     ctx.shadowBlur=0;
     const ztr=zoneTraits(z.n);
     if(ztr.length){
       ctx.font='800 9px system-ui,sans-serif'; ctx.textAlign='center';
       ctx.fillStyle='hsla('+P.hue+',90%,75%,0.9)';
-      ctx.fillText('⚡ '+ztr.map(k=>ZTRAITS[k].name).join(' · '),cx,G.ZONE_H-8);
+      // dark halo: the ⚡ line now crosses the tunnel's bright exit column
+      ctx.shadowColor='rgba(5,1,15,0.9)'; ctx.shadowBlur=6;
+      ctx.fillText('⚡ '+ztr.map(k=>ZTRAITS[k].name).join(' · '),cx,PLATE_TRAIT_Y);
+      ctx.shadowBlur=0;
     }
   }
   ctx.restore();
@@ -1772,12 +1786,14 @@ function mpVeil(win,zi){
   ctx.fillStyle=hexA(P.veil,a); ctx.fillRect(0,-1,G.UNIT_W,G.ZONE_H-BLEND+1);
   if(z.vis==='next' && zi===mpFocusZi){
     ctx.fillStyle='rgba(255,255,255,0.8)'; ctx.shadowColor='hsla('+P.hue+',100%,60%,0.9)'; ctx.shadowBlur=9;
-    mpWavy('ZONE '+z.n+' · '+info.TH.name,cx,G.ZONE_H-24,G.TEXT.zone-2);
+    mpWavy('ZONE '+z.n+' · '+info.TH.name,cx,PLATE_Y,G.TEXT.zone-2);
     ctx.shadowBlur=0;
     ctx.font='700 10px system-ui,sans-serif'; ctx.fillStyle='rgba(255,255,255,0.42)';
     ctx.textAlign='center';
     const ztr2=zoneTraits(z.n);
-    ctx.fillText('clear zone '+(z.n-1)+' to light the way'+(ztr2.length?'  ·  ⚡ '+ztr2.map(k=>ZTRAITS[k].name).join(' · '):''),cx,G.ZONE_H-8);
+    ctx.shadowColor='rgba(5,1,15,0.9)'; ctx.shadowBlur=6;
+    ctx.fillText('clear zone '+(z.n-1)+' to light the way'+(ztr2.length?'  ·  ⚡ '+ztr2.map(k=>ZTRAITS[k].name).join(' · '):''),cx,PLATE_TRAIT_Y);
+    ctx.shadowBlur=0;
   } else {
     const p=0.28+Math.sin(t*1.8)*0.1;
     ctx.font='900 40px system-ui,sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
@@ -1830,6 +1846,7 @@ function claimChal(){
 }
 function fireBtn(act){
   if(act==='mute'){ muted=!muted; save(); applyMute(); return; }
+  if(act==='dnext'||act==='dretry'||act==='dmap'){ doneFire(act); return; }
   if(act==='god'){ if(state==='play') endGodMode(); return; }
   if(act==='zmap'){ exitToMap(); return; }
   if(state==='shop') return;   // the screen changed under the press
@@ -1848,7 +1865,9 @@ window.addEventListener('pointerdown',e=>{
   pressX=e.clientX; pressY=e.clientY; pressDown=true;
   pendBtn=null;
   if(state==='map'){ e.preventDefault(); initAudio(); mpDown(e); return; }
-  if(state==='done'){ e.preventDefault(); initAudio(); if(doneT>0.35) doneTap(e.clientX,e.clientY); return; }
+  if(state==='done'){ e.preventDefault(); initAudio();
+    if(doneT>0.35) pendBtn=doneArm(e.clientX,e.clientY);
+    return; }
   const inR=r=> r && e.clientX>=r[0] && e.clientX<=r[0]+r[2] && e.clientY>=r[1] && e.clientY<=r[1]+r[3];
   const arm=(act,r)=>{ e.preventDefault(); initAudio(); pendBtn={act,r}; };
   if(state!=='shop'){
