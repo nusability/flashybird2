@@ -91,7 +91,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.8.7 zones beta';
+const VERSION='Z0.8.8 zones beta';
 let cv = document.getElementById('c');
 let ctx = cv.getContext('2d');
 
@@ -495,8 +495,53 @@ function whoosh(dur,vol){
   const f=ac.createBiquadFilter(); f.type='lowpass'; f.frequency.value=1400;
   s.connect(f); f.connect(g); g.connect(master); s.start(t);
 }
+/* ---- trait telegraph voices ----
+   The CROSSWIND dust and the PULSE star-breathe are visual-only tells that
+   are easy to miss mid-flight, so each gets a voice on its rising edge.  */
+// CROSSWIND: air. Looped noise under a bandpass that sweeps the way the
+// gust blows, with a warp-drop tone falling out underneath it.
+function gustAir(up,vol){
+  if(!ac||muted||noiseBuf===null) return;
+  const at=ac.currentTime, dur=0.95;
+  const s=ac.createBufferSource(); s.buffer=noiseBuf; s.loop=true;
+  const bp=ac.createBiquadFilter(); bp.type='bandpass'; bp.Q.value=1.15;
+  bp.frequency.setValueAtTime(up?240:1600,at);
+  bp.frequency.exponentialRampToValueAtTime(up?1600:240,at+dur*0.78);
+  const g=ac.createGain();
+  g.gain.setValueAtTime(0.0001,at);
+  g.gain.linearRampToValueAtTime(vol,at+dur*0.32);
+  g.gain.exponentialRampToValueAtTime(0.0005,at+dur);
+  s.connect(bp); bp.connect(g); g.connect(master);
+  s.start(at); s.stop(at+dur+0.05);
+  beep(up?95:230, up?190:65, dur*0.8, 'sine', vol*0.5, at);
+}
+// PULSE: a pocket-sized deep note. Six saws start spread and slide onto a
+// stacked-fifth chord as the tunnel inflates; the exhale runs it backwards,
+// quieter, so the pair breathes with the surge instead of announcing itself.
+const SWELL=[55,82.5,110,165,220,330];
+function swell(up,vol){
+  if(!ac||muted) return;
+  const at=ac.currentTime, dur=up?0.6:0.5;
+  const g=ac.createGain(), fl=ac.createBiquadFilter();
+  fl.type='lowpass'; fl.Q.value=0.9;
+  fl.frequency.setValueAtTime(up?380:2600,at);
+  fl.frequency.exponentialRampToValueAtTime(up?2800:320,at+dur);
+  g.gain.setValueAtTime(0.0001,at);
+  g.gain.exponentialRampToValueAtTime(vol,at+(up?dur*0.75:0.06));
+  g.gain.exponentialRampToValueAtTime(0.0004,at+dur+0.2);
+  SWELL.forEach((f,i)=>{
+    const o=ac.createOscillator(); o.type='sawtooth';
+    o.frequency.setValueAtTime(up?f*(0.5+i*0.14):f*(1.6-i*0.09),at);
+    o.frequency.exponentialRampToValueAtTime(up?f:f*0.5,at+dur);
+    const vg=ac.createGain(); vg.gain.value=1/(1+i*0.6);   // top voices sit back
+    o.connect(vg); vg.connect(fl); o.start(at); o.stop(at+dur+0.24);
+  });
+  fl.connect(g); g.connect(master);
+}
 const sfx = {
   flap(){ beep(340,620,0.09,'square',0.10); },
+  gust(up){ gustAir(up,0.11); },
+  surge(up){ swell(up, up?0.085:0.04); },
   ding(c){ beep(560*Math.pow(1.045,Math.min(c,24)),840*Math.pow(1.045,Math.min(c,24)),0.16,'triangle',0.22); },
   gem(){ beep(880,1760,0.12,'sine',0.2); beep(1320,1320,0.18,'triangle',0.1); },
   power(){ [523,659,784,1047].forEach((f,i)=>setTimeout(()=>beep(f,f,0.14,'square',0.16),i*70)); },
@@ -763,6 +808,8 @@ let starMax=4.2, surfMax=4.5;
 let harnessLeft=0, phoenixLeft=0, buddy=false;
 let runBugs=0, runBugStreak=0, runGates=0;
 let pedalOn=false, pedalT=0, pedalPid=null, pedalLock=false, riseRect=null, todayRect=null, randRect=null, muteRect=null, deadStackY=0;
+// one-shot latches for the trait telegraph voices (see update())
+let pulseVoiced=false, windVoiced=false;
 let dbgPowerRect=null;   // the END GOD MODE button while ?debug=poweroverwhelming
 // pressed-state tracking: where the active pointer is, while it's down
 let pressX=-1, pressY=-1, pressDown=false;
@@ -2012,10 +2059,25 @@ function update(dt){
   const surfing = surfT>0;
   const advSpd = state==='play' ? spd*(surfing?Math.pow(1.9,surfStack):1) : 90;
   const adv = advSpd*(state==='play'&&zTrait('pulse') ? 1+Math.sin(t*1.2)*0.3 : 1)*d;
+  // the telegraph voices ride the same gates their visuals do, one shot per
+  // window: pulse speaks as the surge turns, crosswind as the gust turns
+  if(state==='play' && zTrait('pulse')){
+    const pc=Math.cos(t*1.2), pI=(Math.abs(pc)-0.35)/0.65;
+    // pc>0 is the tunnel breathing OUT (field spreading, speed ramping up) —
+    // elongation, so it takes the falling/disengage half of the voice
+    if(pI>0.02){ if(!pulseVoiced){ pulseVoiced=true; sfx.surge(pc<0); } }
+    else pulseVoiced=false;
+  } else pulseVoiced=false;
 
   // stars always move
   for(const s of stars){ s.z-=adv*0.85; if(s.z<BZ+8){ s.z+=FAR-BZ; s.x=rand(-260,260); s.y=rand(-260,260);} }
+  if(!(state==='play' && zTrait('wind'))) windVoiced=false;
   if(state==='play' && zTrait('wind')){
+    const wc=Math.cos(t*0.55), wI=(Math.abs(wc)-0.35)/0.65;
+    // wc>0 is the gust ramping DOWNWARD (the dust chevrons point down here),
+    // so that half falls and the other half rises — same air, mirrored
+    if(wI>0.02){ if(!windVoiced){ windVoiced=true; sfx.gust(wc<0); } }
+    else windVoiced=false;
     const wv=Math.sin(t*0.55)*85;
     for(const p of WDUST){
       p.z-=adv*0.9; p.y+=wv*1.3*d;
