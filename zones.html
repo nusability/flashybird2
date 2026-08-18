@@ -91,7 +91,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.7.2 zones beta';
+const VERSION='Z0.8.0 zones beta';
 let cv = document.getElementById('c');
 let ctx = cv.getContext('2d');
 
@@ -803,51 +803,78 @@ function spawn(z){
   const gen = clamp((wz-20000)/40000, 0, 1);
   const nmkt = zTrait('market');
   const roll=wrng();
-  if(roll<0.46){                                   // GATE — disc with a spinning hole
+  if(roll<0.80){                                   // OBSTACLE — the pool grows by zone
+    // stage ladder: z1 discs · z2 +rotors · z3 +boulders · z4 +sliders ·
+    // z5 +iris discs · z6 +elevator doors · z7 +lasers. Deep tunnel
+    // graduates on course distance so its stream stays deterministic.
+    const stage = levelQ ? levelQ.n : Math.floor(wz/9000)+1;
+    const pool=[['gate',40]];
+    if(stage>=2) pool.push(['rotor',16]);
+    if(stage>=3) pool.push(['rocks',16]);
+    if(stage>=4) pool.push(['slider',13]);
+    if(stage>=5) pool.push(['iris',13]);
+    if(stage>=6) pool.push(['doors',11]);
+    if(stage>=7) pool.push(['laser',11]);
+    let tot=0; for(const p of pool) tot+=p[1];
+    let pick=wrng()*tot, kind2=pool[0][0];
+    for(const p of pool){ if((pick-=p[1])<=0){ kind2=p[0]; break; } }
     const shrink = clamp(22 - dlvl()*0.9, 15, 22);
-    const hr = wrand(shrink, shrink+4);
-    // hole orbits as the disc approaches, but lands on an axis (0/90/180/270 deg)
-    // exactly at the bird plane; side holes stay near center so hovering threads them
-    const quad = wirand(0,3), thf = quad*Math.PI/2;
-    // axis holes drift outward as the levels climb (6-36 early, up to
-    // 26-52 at the cap) so threading them demands real excursions;
-    // side-quad holes stay near center as the breather variant
-    const d = quad%2===1 ? wrand(6+dlvl()*2, 36+dlvl()*1.6) : wrand(0, Math.max(4, hr-9));
-    const spin = wrand(0.004,0.011)*(wrng()<0.5?-1:1);
-    ents.push({type:'gate', z, thf, d, spin, x:Math.cos(thf)*d, y:Math.sin(thf)*d, hr, hue:(hue+wrand(0,120))%360, done:false});
-  } else if(roll<0.64){                            // SWEEPER — full bar, one hole-sized gap
-    // no free middle anymore: the bar spans the whole tunnel and the only
-    // way through is a gap the size of a gate hole. Like gate holes it
-    // rides the rotation on approach and lands on the bird's axis at the
-    // plane, its distance from center varying per sweeper
-    const shrink = clamp(22 - dlvl()*0.9, 15, 22);
-    const g = wrand(shrink, shrink+4);
-    if(wrng()<0.5){
-      // ROTOR: depth-keyed rotation, lands on the flap axis at the plane
+    if(kind2==='gate'){                            // GATE — disc with a spinning hole
+      const hr = wrand(shrink, shrink+4);
+      // hole orbits as the disc approaches, but lands on an axis (0/90/180/270 deg)
+      // exactly at the bird plane; side holes stay near center so hovering threads them
+      const quad = wirand(0,3), thf = quad*Math.PI/2;
+      // axis holes drift outward as the levels climb (6-36 early, up to
+      // 26-52 at the cap) so threading them demands real excursions;
+      // side-quad holes stay near center as the breather variant
+      const d = quad%2===1 ? wrand(6+dlvl()*2, 36+dlvl()*1.6) : wrand(0, Math.max(4, hr-9));
+      const spin = wrand(0.004,0.011)*(wrng()<0.5?-1:1);
+      ents.push({type:'gate', z, thf, d, spin, x:Math.cos(thf)*d, y:Math.sin(thf)*d, hr, hue:(hue+wrand(0,120))%360, done:false});
+    } else if(kind2==='rotor'){                    // ROTOR — full bar, depth-keyed rotation
+      // the bar spans the whole tunnel and the only way through is a gap
+      // the size of a gate hole; it rides the rotation on approach and
+      // lands on the bird's axis exactly at the plane
+      const g = wrand(shrink, shrink+4);
       const af = wrng()<0.5 ? Math.PI/2 : -Math.PI/2;
       const d = wrand(6,40);
       const spin = wrand(0.005,0.012)*(wrng()<0.5?-1:1)*(1+dlvl()*0.04);
       ents.push({type:'bar', z, af, d, g, spin, amp:0, sf:0, th:7, done:false});
-    } else {
-      // SLIDER: bar stays on the flap axis, but the gap glides up and
-      // down its length and only settles at its true spot at the plane
+    } else if(kind2==='slider'){                   // SLIDER — gap glides along the bar
+      // stays on the flap axis, but the gap slides up and down its length
+      // and only settles at its true spot at the plane
+      const g = wrand(shrink, shrink+4);
       const d = wrand(-38,38);
       const amp = wrand(16,28)*(wrng()<0.5?-1:1);
       const sf = wrand(0.008,0.016)*(1+dlvl()*0.04);
       ents.push({type:'bar', z, af:Math.PI/2, d, g, spin:0, amp, sf, th:7, done:false});
+    } else if(kind2==='rocks'){                    // ASTEROIDS — swaying slalom wall
+      const slots=[-48,-26,0,26,48], gap1=wirand(0,4);
+      let gap2 = wrng()<0.35 ? gap1 : wirand(0,4); // sometimes only ONE fixed gap
+      const single = gap2===gap1;
+      const rocks=[], w2=wrand(0.9,1.5)+dlvl()*0.05;
+      slots.forEach((sy,i)=>{ if(i!==gap1&&i!==gap2) rocks.push({x:wrand(-5,5),y:sy+wrand(-3,3),r:wrand(10.5,13.5),shape:rockShape(),ra:wrand(0,TAU),rs:wrand(-1,1),amp:single?wrand(26,30):wrand(22,28),ph:0}); });
+      // evenly staggered sway phases guarantee some rock is always swung
+      // clear of the flight column — a moving, unpredictable opening
+      const solid=rocks.length;
+      rocks.forEach((r,i)=>{ r.ph=i*TAU/solid+wrand(-0.25,0.25); });
+      for(let i=0;i<3;i++) rocks.push({x:wrand(24,52)*(wrng()<0.5?-1:1),y:wrand(-50,50),r:wrand(6,10),shape:rockShape(),ra:wrand(0,TAU),rs:wrand(-1.5,1.5),amp:wrand(4,8),ph:wrand(0,TAU),deco:true});
+      ents.push({type:'rocks', z, w2, rocks, done:false});
+    } else if(kind2==='iris'){                     // IRIS — the hole starts huge and closes
+      // a dashed ghost ring marks the final aperture the whole way in:
+      // readable if you watch it, deceptive if you trust the big opening
+      const hr = wrand(shrink, shrink+3);
+      const thf = wrand(0,TAU), d = wrand(0,24);
+      ents.push({type:'iris', z, thf, d, x:Math.cos(thf)*d, y:Math.sin(thf)*d, hr, hrX:wrand(20,30), hue:(hue+wrand(180,300))%360, done:false});
+    } else if(kind2==='doors'){                    // ELEVATOR DOORS — the slit rides up/down
+      // two full-width panels; the horizontal slit between them glides
+      // and only settles at its true height at the plane
+      const g = wrand(shrink, shrink+4);
+      ents.push({type:'doors', z, d:wrand(-30,30), g, amp:wrand(16,26)*(wrng()<0.5?-1:1), sf:wrand(0.006,0.012)*(1+dlvl()*0.04), done:false});
+    } else {                                       // LASERS — an X pinned to the wall
+      // two beams cross on the flight axis: pass above or below the
+      // crossing. Emitters ride the wall, the X drifts and slowly spins
+      ents.push({type:'laser', z, d:wrand(-20,20), b1:wrand(0.35,0.6), b2:-wrand(0.35,0.6), spin:wrand(0.0015,0.004)*(wrng()<0.5?-1:1), th:5+dlvl()*0.4, amp:wrand(10,18)*(wrng()<0.5?-1:1), sf:wrand(0.005,0.01), done:false});
     }
-  } else if(roll<0.80){                            // ASTEROIDS — swaying slalom wall
-    const slots=[-48,-26,0,26,48], gap1=wirand(0,4);
-    let gap2 = wrng()<0.35 ? gap1 : wirand(0,4);   // sometimes only ONE fixed gap
-    const single = gap2===gap1;
-    const rocks=[], w2=wrand(0.9,1.5)+dlvl()*0.05;
-    slots.forEach((sy,i)=>{ if(i!==gap1&&i!==gap2) rocks.push({x:wrand(-5,5),y:sy+wrand(-3,3),r:wrand(10.5,13.5),shape:rockShape(),ra:wrand(0,TAU),rs:wrand(-1,1),amp:single?wrand(26,30):wrand(22,28),ph:0}); });
-    // evenly staggered sway phases guarantee some rock is always swung
-    // clear of the flight column — a moving, unpredictable opening
-    const solid=rocks.length;
-    rocks.forEach((r,i)=>{ r.ph=i*TAU/solid+wrand(-0.25,0.25); });
-    for(let i=0;i<3;i++) rocks.push({x:wrand(24,52)*(wrng()<0.5?-1:1),y:wrand(-50,50),r:wrand(6,10),shape:rockShape(),ra:wrand(0,TAU),rs:wrand(-1.5,1.5),amp:wrand(4,8),ph:wrand(0,TAU),deco:true});
-    ents.push({type:'rocks', z, w2, rocks, done:false});
   } else if(roll<(nmkt?0.82:0.86-0.03*gen)){       // GEM — cedes ground to powerups late
     ents.push({type:'gem', z, x:0, y:wrand(-36,36), seed:wrand(0,9), done:false});
   } else if(roll<(nmkt?0.95:0.92-0.04*gen)){       // GLOWBUG — evasive currency
@@ -2038,7 +2065,7 @@ function update(dt){
       if(!e.done && pz>BZ && e.z<=BZ){
         e.done=true;
         const [sx,sy]=proj(0,bird.y,BZ);
-        if(e.type==='gate'){
+        if(e.type==='gate'||e.type==='iris'){
           const dd=Math.hypot(0-e.x, bird.y-e.y);
           if(dd < e.hr-BIRD_R*0.55){
             combo += tier('combo')>=3?2:1; runGates++;
@@ -2065,6 +2092,36 @@ function update(dt){
           else if(graceT>0){ /* silent */ }
           else if(absorbHit(sx,sy)){}
           else die((Math.sin(e.af)>0?1:-1)*e.d - bird.y > 6);
+        }
+        else if(e.type==='doors'){
+          // panels are wall-to-wall: only the slit at e.d lets you through
+          const off = Math.abs(bird.y - e.d);
+          if(off < e.g - BIRD_R*0.55){
+            combo++; gain(15,null,sx,sy,0); sfx.ding(combo);
+            if(e.g - off < 7){ gain(15,'CLOSE!',sx,sy-100*SC,55,0); sfx.close(); }
+          }
+          else if(inv){ gain(10,'CLANG!',sx,sy-60*SC,210); if(levelQ) lvlStat.bumps++; comboSmash(sx,sy); sfx.smash(); burst(sx,sy,24,210,380*SC,5*SC); }
+          else if(graceT>0){ /* silent */ }
+          else if(absorbHit(sx,sy)){}
+          else die(e.d - bird.y > 6);
+        }
+        else if(e.type==='laser'){
+          // both beams cross at (0, e.d): clearance is vertical distance
+          // from the crossing, scaled by each beam's slope
+          let lHit=false, lClose=false;
+          for(const b0 of [e.b1,e.b2]){
+            const dd=Math.abs(bird.y-e.d)*Math.cos(b0);
+            if(dd < e.th + BIRD_R*0.55) lHit=true;
+            else if(dd < e.th + BIRD_R + 6) lClose=true;
+          }
+          if(!lHit){
+            combo++; gain(15,null,sx,sy,0); sfx.ding(combo);
+            if(lClose){ gain(15,'CLOSE!',sx,sy-100*SC,55,0); sfx.close(); }
+          }
+          else if(inv){ gain(10,'ZAP!',sx,sy-60*SC,350); if(levelQ) lvlStat.bumps++; comboSmash(sx,sy); sfx.smash(); burst(sx,sy,24,350,380*SC,5*SC); }
+          else if(graceT>0){ /* silent */ }
+          else if(absorbHit(sx,sy)){}
+          else die(e.d - bird.y > 6);
         }
         else if(e.type==='rocks'){
           let hit=false, close=false;
@@ -2302,7 +2359,7 @@ function render(){
   for(const it of items){
     if(it.kind==='ring') drawRing(it.z0);
     else if(it.kind==='finish') drawFinish(it.z);
-    else if(phOn && (it.e.type==='gate'||it.e.type==='bar'||it.e.type==='rocks')){
+    else if(phOn && (it.e.type==='gate'||it.e.type==='bar'||it.e.type==='rocks'||it.e.type==='iris'||it.e.type==='doors'||it.e.type==='laser')){
       const wave=0.5+0.5*Math.sin((dist+it.e.z)*0.0055 - t*2.2);
       const near=clamp((430-it.e.z)/330,0,1);            // always lit at the plane
       ctx.globalAlpha=lerp(0.10+0.9*wave, 1, near);
@@ -2479,6 +2536,89 @@ function drawEnt(e){
     const tCap=e.th*0.5;
     seg(-L+tCap,i1,wHalo,halo); seg(i2,L-tCap,wHalo,halo);
     seg(-L+tCap,i1,wCore,core); seg(i2,L-tCap,wCore,core);
+  }
+  else if(e.type==='iris'){
+    const [cx,cy,k]=projW(0,0,zz);
+    // aperture closes on approach and lands at its true size at the plane;
+    // the dashed ghost ring shows the final aperture the whole way in
+    const prog=clamp((zz-BZ)/1300,0,1);
+    const [hx,hy]=projW(Math.cos(e.thf)*e.d, Math.sin(e.thf)*e.d, zz);
+    const hrNow=(e.hr+e.hrX*prog)*k, hrEnd=e.hr*k, rimAng=rot+zz*twist;
+    const a=clamp(1.6-zz/900,0.1,0.92);
+    ringPath(cx,cy,R*k,rimAng,16);
+    ctx.moveTo(hx+hrNow,hy);
+    ctx.arc(hx,hy,hrNow,0,TAU,true);
+    ctx.fillStyle=`hsla(${e.hue},70%,${26+Math.sin(t*6)*5}%,${a})`;
+    ctx.fill('evenodd');
+    ctx.strokeStyle=`hsla(${e.hue},95%,62%,${a*0.8})`;
+    ctx.lineWidth=clamp(900/zz,1,8)*SC;
+    ringPath(cx,cy,R*k,rimAng,16); ctx.stroke();
+    ctx.strokeStyle=`hsla(${e.hue},100%,72%,${a})`;
+    ctx.lineWidth=clamp(700/zz,1,7)*SC;
+    ctx.shadowColor=`hsl(${e.hue},100%,60%)`; ctx.shadowBlur=18*SC*a;
+    ctx.beginPath(); ctx.arc(hx,hy,hrNow,0,TAU); ctx.stroke();
+    ctx.shadowBlur=0;
+    if(prog>0.02){
+      ctx.strokeStyle=`hsla(${e.hue},100%,82%,${a*0.55})`;
+      ctx.lineWidth=1.6*SC; ctx.setLineDash([5,7]); ctx.lineDashOffset=-t*30;
+      ctx.beginPath(); ctx.arc(hx,hy,hrEnd,0,TAU); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+  else if(e.type==='doors'){
+    const [cx,cy,k]=projW(0,0,zz);
+    const a=clamp(1.6-zz/900,0.1,0.95);
+    const gc=e.d + e.amp*Math.sin(e.sf*(zz-BZ));
+    const rimAng=rot+zz*twist;
+    const [,gyA]=projW(0,gc-e.g,zz), [,gyB]=projW(0,gc+e.g,zz);
+    const gy1=Math.min(gyA,gyB), gy2=Math.max(gyA,gyB);
+    // steel panels fill the whole ring except the slit (evenodd carve)
+    ringPath(cx,cy,R*k,rimAng,16);
+    ctx.rect(cx-(R+10)*k, gy1, 2*(R+10)*k, gy2-gy1);
+    ctx.fillStyle=`hsla(215,32%,${26+Math.sin(t*4)*3}%,${a})`;
+    ctx.fill('evenodd');
+    ctx.strokeStyle=`hsla(215,60%,55%,${a*0.7})`;
+    ctx.lineWidth=clamp(900/zz,1,7)*SC;
+    ringPath(cx,cy,R*k,rimAng,16); ctx.stroke();
+    // glowing slit edges, clipped to the ring so they end on the wall
+    ctx.save();
+    ringPath(cx,cy,R*k,rimAng,16); ctx.clip();
+    const pulse=0.7+Math.sin(t*9)*0.3;
+    ctx.lineCap='round';
+    ctx.strokeStyle=`hsla(48,100%,${58+pulse*14}%,${a})`;
+    ctx.lineWidth=clamp(500/zz,1,5)*SC;
+    ctx.shadowColor='hsl(48,100%,60%)'; ctx.shadowBlur=14*SC*a;
+    ctx.beginPath(); ctx.moveTo(cx-(R+10)*k,gy1); ctx.lineTo(cx+(R+10)*k,gy1);
+    ctx.moveTo(cx-(R+10)*k,gy2); ctx.lineTo(cx+(R+10)*k,gy2); ctx.stroke();
+    ctx.shadowBlur=0;
+    ctx.restore();
+  }
+  else if(e.type==='laser'){
+    const a=clamp(1.6-zz/900,0.1,0.95);
+    const gc=e.d + e.amp*Math.sin(e.sf*(zz-BZ));
+    const pulse=0.72+Math.sin(t*16)*0.28;
+    for(const [b0,dir] of [[e.b1,1],[e.b2,-1]]){
+      const ang=b0 + dir*e.spin*(zz-BZ);
+      const ca=Math.cos(ang), sa=Math.sin(ang);
+      // chord of the beam line through (0,gc) across the R-circle
+      const B=gc*sa, disc=Math.sqrt(Math.max(0,B*B-(gc*gc-R*R)));
+      const tA=-B-disc, tB=-B+disc;
+      const [x1,y1]=projW(tA*ca, gc+tA*sa, zz);
+      const [x2,y2,k2]=projW(tB*ca, gc+tB*sa, zz);
+      ctx.lineCap='round';
+      ctx.strokeStyle=`hsla(350,100%,55%,${a*0.35})`;
+      ctx.lineWidth=e.th*k2*2.6;
+      ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+      ctx.strokeStyle=`hsla(${344+pulse*14},100%,${58+pulse*18}%,${a})`;
+      ctx.lineWidth=e.th*k2;
+      ctx.shadowColor='hsl(350,100%,55%)'; ctx.shadowBlur=16*SC*a*pulse;
+      ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+      ctx.shadowBlur=0;
+      // wall emitter nubs
+      ctx.fillStyle=`hsla(350,60%,80%,${a})`;
+      ctx.beginPath(); ctx.arc(x1,y1,3.2*k2,0,TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(x2,y2,3.2*k2,0,TAU); ctx.fill();
+    }
   }
   else if(e.type==='rocks'){
     const a=clamp(1.6-zz/900,0.1,0.95);
