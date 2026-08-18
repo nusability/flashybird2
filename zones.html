@@ -523,13 +523,16 @@ function airBurst(at,dur,f0,f1,vol,q){
 // air over the top so it still reads as wind rather than a siren.
 function warpSweep(up,vol){
   if(!ac||muted) return;
-  const at=ac.currentTime, dur=0.9, f0=up?240:1500, f1=up?1500:240;
+  // 3s: the gust gate stays open ~4.4s, so the sweep can take its time
+  const at=ac.currentTime, dur=3.0, f0=up?240:1500, f1=up?1500:240;
   const g=ac.createGain(), fl=ac.createBiquadFilter();
   fl.type='lowpass'; fl.Q.value=9;              // the resonance is the whistle
   fl.frequency.setValueAtTime(f0*2.2,at);
-  fl.frequency.exponentialRampToValueAtTime(f1*2.2,at+dur*0.9);
+  fl.frequency.exponentialRampToValueAtTime(f1*2.2,at+dur*0.92);
   g.gain.setValueAtTime(0.0001,at);
-  g.gain.linearRampToValueAtTime(vol,at+(up?dur*0.5:0.08));
+  // engage winds up slowly and holds; disengage hits and coasts down
+  g.gain.linearRampToValueAtTime(vol,at+(up?dur*0.62:0.18));
+  g.gain.setValueAtTime(vol,at+dur*0.78);
   g.gain.exponentialRampToValueAtTime(0.0004,at+dur);
   for(const c of [-7,7]){
     const o=ac.createOscillator(); o.type='sawtooth';
@@ -547,18 +550,20 @@ function warpSweep(up,vol){
 const SWELL=[220,330,440,660,880,1320];
 function swell(up,vol){
   if(!ac||muted) return;
-  const at=ac.currentTime, dur=up?0.62:0.55;
+  // 2.4s, not 3: the pulse gate re-fires every 2.6s, so a longer voice would
+  // stack on its own tail. Consecutive breaths butt up instead of piling up.
+  const at=ac.currentTime, dur=up?2.4:2.2;
   const g=ac.createGain(), fl=ac.createBiquadFilter();
   fl.type='lowpass'; fl.Q.value=1.3;
   fl.frequency.setValueAtTime(up?700:4200,at);
-  fl.frequency.exponentialRampToValueAtTime(up?4200:600,at+dur);
+  fl.frequency.exponentialRampToValueAtTime(up?4200:600,at+dur*0.95);
   g.gain.setValueAtTime(0.0001,at);
-  g.gain.exponentialRampToValueAtTime(vol,at+(up?dur*0.7:0.07));
-  g.gain.exponentialRampToValueAtTime(0.0004,at+dur+0.16);
+  g.gain.exponentialRampToValueAtTime(vol,at+(up?dur*0.78:0.22));
+  g.gain.exponentialRampToValueAtTime(0.0004,at+dur+0.2);
   SWELL.forEach((f,i)=>{
     const o=ac.createOscillator(); o.type='sawtooth';
     o.frequency.setValueAtTime(up?f*(0.55+i*0.09):f,at);
-    o.frequency.exponentialRampToValueAtTime(up?f:f*(0.5+i*0.05),at+dur);
+    o.frequency.exponentialRampToValueAtTime(up?f:f*(0.5+i*0.05),at+dur*0.88);
     const vg=ac.createGain(); vg.gain.value=0.5/(1+i*0.35);   // top voices sit back
     o.connect(vg); vg.connect(fl); o.start(at); o.stop(at+dur+0.2);
   });
@@ -566,7 +571,7 @@ function swell(up,vol){
 }
 const sfx = {
   flap(){ beep(340,620,0.09,'square',0.10); },
-  gust(up){ warpSweep(up,0.11); },
+  gust(up){ warpSweep(up,0.09); },
   surge(up){ swell(up, up?0.16:0.11); },
   ding(c){ beep(560*Math.pow(1.045,Math.min(c,24)),840*Math.pow(1.045,Math.min(c,24)),0.16,'triangle',0.22); },
   gem(){ beep(880,1760,0.12,'sine',0.2); beep(1320,1320,0.18,'triangle',0.1); },
