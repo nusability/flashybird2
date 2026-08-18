@@ -4168,8 +4168,16 @@ async function checkUpdate(){
   }catch(e){}
 }
 async function doUpdate(){
-  try{ const ks=await caches.keys(); await Promise.all(ks.map(k=>caches.delete(k))); }catch(e){}
-  try{ const reg=await navigator.serviceWorker.getRegistration(); if(reg) await reg.update(); }catch(e){}
+  // the reload IS the update: the cache purge and the service-worker check
+  // are best-effort housekeeping in front of it. registration.update() can
+  // hang forever (it never settles in Chromium here), and awaiting it flat
+  // meant the button did nothing at all — so the housekeeping gets a budget
+  // and the reload fires either way.
+  const housekeeping=(async()=>{
+    try{ const ks=await caches.keys(); await Promise.all(ks.map(k=>caches.delete(k))); }catch(e){}
+    try{ const reg=await navigator.serviceWorker.getRegistration(); if(reg) await reg.update(); }catch(e){}
+  })();
+  await Promise.race([housekeeping, new Promise(r=>setTimeout(r,1500))]);
   try{
     const u=new URL(location.href);
     u.searchParams.set('reload',Math.random().toString(36).slice(2,10));
