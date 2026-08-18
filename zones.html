@@ -91,7 +91,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.8.2 zones beta';
+const VERSION='Z0.8.3 zones beta';
 let cv = document.getElementById('c');
 let ctx = cv.getContext('2d');
 
@@ -873,10 +873,10 @@ function spawn(z){
       // the slit sits at top, middle, or bottom and the panels close on
       // approach, reaching their final opening exactly at the plane —
       // reading WHERE the slit is while it is still wide is the challenge
-      const g = wrand(shrink, shrink+4);
+      const g = wrand(shrink, shrink+4)*0.75;
       const band = wirand(0,2);
       const d = (band-1)*28 + wrand(-6,6);
-      ents.push({type:'doors', z, d, g, gX:wrand(22,32), done:false});
+      ents.push({type:'doors', z, d, g, done:false});
     } else {                                       // LASERS — an X pinned to the wall
       // two beams cross on the flight axis: pass above or below the
       // crossing. Emitters ride the wall, the X drifts and slowly spins
@@ -2601,12 +2601,13 @@ function drawEnt(e){
   else if(e.type==='doors'){
     const [cx,cy,k]=projW(0,0,zz);
     const a=clamp(1.6-zz/900,0.1,0.95);
-    // blast doors: the slit stays put, the panels close on approach and
-    // reach the final opening exactly at the plane
-    const prog=clamp((zz-BZ)/1100,0,1);
-    const gNow=e.g + e.gX*prog;
+    // blast doors: the panels start flush inside the tunnel walls and
+    // close the full span, landing on the final slit exactly at the
+    // plane; the 0.7 ease makes the last stretch the fastest — a slam
+    const prog=Math.pow(clamp((zz-BZ)/1100,0,1),0.7);
     const rimAng=rot+zz*twist;
-    const [,gyA]=projW(0,e.d-gNow,zz), [,gyB]=projW(0,e.d+gNow,zz);
+    const [,gyA]=projW(0, lerp(e.d-e.g,-R-8,prog), zz);
+    const [,gyB]=projW(0, lerp(e.d+e.g, R+8,prog), zz);
     const gy1=Math.min(gyA,gyB), gy2=Math.max(gyA,gyB);
     // panels and edges all live inside a ring clip — nothing pokes past
     // the tunnel wall
