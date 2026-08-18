@@ -91,7 +91,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.8.3 zones beta';
+const VERSION='Z0.8.4 zones beta';
 let cv = document.getElementById('c');
 let ctx = cv.getContext('2d');
 
@@ -788,7 +788,7 @@ const stars=[];
 for(let i=0;i<110;i++) stars.push({x:rand(-260,260),y:rand(-260,260),z:rand(BZ+10,FAR)});
 /* CROSSWIND indicator dust: in-tunnel motes that ride the gusts */
 const WDUST=[];
-for(let i=0;i<26;i++) WDUST.push({x:rand(-52,52),y:rand(-56,56),z:rand(BZ+10,1600)});
+for(let i=0;i<90;i++) WDUST.push({x:rand(-58,58),y:rand(-56,56),z:rand(BZ+10,1600)});
 
 function rockShape(){
   const n=wirand(7,9), pts=[];
@@ -2344,16 +2344,18 @@ function render(){
   ctx.lineCap='round';
   const pw=(state==='play'&&zTrait('pulse'))?(()=>{ const c=Math.cos(t*1.2);
     const g2=clamp((Math.abs(c)-0.35)/0.65,0,1);
-    return g2>0.02?{f:1+0.16*c*g2, g:g2}:null; })():null;
+    return g2>0.02?{f:1+0.22*c*g2, g:g2}:null; })():null;
+  if(pw) ctx.globalCompositeOperation='lighter';
   for(const s of stars){
     const sx3=pw?s.x*pw.f:s.x, sy3=pw?s.y*pw.f:s.y;
     const [x1,y1]=proj(sx3,sy3,s.z);
     const [x2,y2]=proj(sx3,sy3,s.z+ (surfing?60+60*surfStack:60));
-    const a=clamp(1.4 - s.z/1200, 0.05, 0.8)*(pw?1+0.7*pw.g:1);
-    ctx.strokeStyle=`hsla(${(hue+s.z*0.2)%360},80%,${80+(pw?12*pw.g:0)}%,${Math.min(a,1)})`;
-    ctx.lineWidth=clamp(160/s.z,0.4,2.4)*(pw?1+0.7*pw.g:1)*SC;
+    const a=clamp(1.4 - s.z/1200, 0.05, 0.8)*(pw?1+1.3*pw.g:1);
+    ctx.strokeStyle=`hsla(${(hue+s.z*0.2)%360},90%,${80+(pw?17*pw.g:0)}%,${Math.min(a,1)})`;
+    ctx.lineWidth=clamp(160/s.z,0.4,2.4)*(pw?1+1.4*pw.g:1)*SC;
     ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
   }
+  if(pw) ctx.globalCompositeOperation='source-over';
   // CROSSWIND telegraph: dust motes light up and stream with the gust
   // exactly while the wind is turning; quiet the rest of the time
   if(state==='play' && zTrait('wind')){
@@ -2362,11 +2364,14 @@ function render(){
     if(gI>0.02){
       ctx.globalCompositeOperation='lighter';
       for(const p of WDUST){
-        const [x1,y1]=projW(p.x,p.y,p.z);
-        const [x2,y2]=projW(p.x,p.y+(cw>0?7:-7),p.z);
-        ctx.strokeStyle=`hsla(190,100%,80%,${0.5*gI*clamp(1.5-p.z/1200,0.1,1)})`;
-        ctx.lineWidth=clamp(190/p.z,0.5,2.2)*SC;
+        const fade=clamp(1.6-p.z/1100,0.15,1);
+        const [x1,y1,k1]=projW(p.x,p.y,p.z);
+        const [x2,y2]=projW(p.x,p.y+(cw>0?13:-13),p.z);
+        ctx.strokeStyle=`hsla(190,100%,78%,${0.9*gI*fade})`;
+        ctx.lineWidth=clamp(240/p.z,0.8,3.2)*SC;
         ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+        ctx.fillStyle=`hsla(185,100%,92%,${0.95*gI*fade})`;
+        ctx.beginPath(); ctx.arc(x2,y2,clamp(150/p.z,0.6,2.4)*SC,0,TAU); ctx.fill();
       }
       ctx.globalCompositeOperation='source-over';
     }
