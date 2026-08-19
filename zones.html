@@ -91,7 +91,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.14.1 zones beta';
+const VERSION='Z0.14.2 zones beta';
 let cv = document.getElementById('c');
 let ctx = cv.getContext('2d');
 
@@ -851,6 +851,8 @@ let pulseVoiced=false, windVoiced=false;
 let dbgPowerRect=null;   // the END GOD MODE button while ?debug=poweroverwhelming
 // pressed-state tracking: where the active pointer is, while it's down
 let pressX=-1, pressY=-1, pressDown=false;
+// scratch buffers for the harness shells (built on first use, resized with the bird)
+let shCv=null, shCtx=null, shInv=null, shInvCtx=null, shGlow=null, shGlowCtx=null;
 const pressedIn=r=> pressDown && r && pressX>=r[0]&&pressX<=r[0]+r[2]&&pressY>=r[1]&&pressY<=r[1]+r[3];
 let hintT=0;   // first-flight primer cards countdown
 // UI scale for tappable controls: near full-size on phones where SC
@@ -3144,28 +3146,67 @@ function drawBird(surfing,starred){
     ctx.beginPath(); ctx.ellipse(0,s*1.35,s*2.4,s*0.55,0,0,TAU); ctx.fill();
     ctx.shadowBlur=0; ctx.restore();
   }
-  // harness shells: the bird's own outline worn as layers of golden air, one
-  // for each hit you can still absorb, up to the three the perk tops out at.
-  // Each layer is the SKIN's silhouette — whichever model you fly — scaled a
-  // step and drawn additively BEFORE the bird, so the light piles up where
-  // every layer overlaps, tight against the body, and steps down at each
-  // layer's edge. That stack is the limb glow you get looking at a planet
-  // from orbit, and being stepped rather than smooth it stays countable:
-  // one edge per charge. The bird itself then covers the middle.
+  // harness shells: the SKIN's silhouette as a union — every part of the
+  // model flattened into one shape, so wings and body stop ghosting through
+  // each other the way stacked copies did — carrying a yellow inner shadow.
+  // The mask is built once a frame and stamped at a scale per charge, so the
+  // glow hugs the outline from inside and thins outward: a planet's limb seen
+  // from orbit, in gold. The bird is drawn over the top, so the middles stay
+  // hollow with no masking of their own.
   const shells=Math.min(3, harnessLeft+(stock.harness|0));
   if(state==='play' && shells>0){
+    const need=Math.ceil(s*8), pxs=Math.ceil(need*DPR);
+    if(!shCv || shCv.width!==pxs){
+      shCv=document.createElement('canvas'); shCv.width=shCv.height=pxs; shCtx=shCv.getContext('2d');
+      shInv=document.createElement('canvas'); shInv.width=shInv.height=pxs; shInvCtx=shInv.getContext('2d');
+      shGlow=document.createElement('canvas'); shGlow.width=shGlow.height=pxs; shGlowCtx=shGlow.getContext('2d');
+    }
+    // 1. the union: one flat colour, so overlapping parts merge into one shape
+    shCtx.setTransform(DPR,0,0,DPR,0,0);
+    shCtx.globalCompositeOperation='source-over'; shCtx.globalAlpha=1;
+    shCtx.clearRect(0,0,need,need);
+    const mainCtx=ctx; ctx=shCtx;
+    ctx.save(); ctx.translate(need/2,need/2);
+    drawModel(skin, s, '#fff', bodyH, bodySat, bodyLum, bird.wing, null);
+    ctx.restore();
+    ctx=mainCtx;
+    // 2. the inverse of that union — the caster the inner shadow falls from
+    shInvCtx.setTransform(1,0,0,1,0,0);
+    shInvCtx.globalCompositeOperation='source-over';
+    shInvCtx.clearRect(0,0,pxs,pxs);
+    shInvCtx.fillStyle='#000'; shInvCtx.fillRect(0,0,pxs,pxs);
+    shInvCtx.globalCompositeOperation='destination-out';
+    shInvCtx.drawImage(shCv,0,0);
+    // 3. cast that inverse WITH a shadow, on its own pass. The shadow has to
+    // be its own step: Chromium drops shadows under the clipping composite
+    // ops, so casting straight into the mask silently produced nothing but
+    // the caster's antialiased edge. The caster needs no offset either — its
+    // pixels are the OUTSIDE of the shape, so only the shadow lands inside.
+    shGlowCtx.setTransform(1,0,0,1,0,0);
+    shGlowCtx.globalCompositeOperation='source-over';
+    shGlowCtx.clearRect(0,0,pxs,pxs);
+    // deep gold, not pale: added light at high lightness carries blue with it
+    // and washes to grey. A tight blur also keeps the band hugging the edge
+    // instead of bleeding into the middle, where the bird covers it anyway.
+    shGlowCtx.shadowColor='hsl(45,100%,50%)';
+    shGlowCtx.shadowBlur=Math.max(2,s*0.32)*DPR;
+    shGlowCtx.drawImage(shInv,0,0);
+    shGlowCtx.shadowBlur=0;
+    // 4. keep it only where the union is, and that is the inner shadow
+    shCtx.setTransform(1,0,0,1,0,0);
+    shCtx.globalCompositeOperation='source-in';
+    shCtx.drawImage(shGlow,0,0);
+    // 5. one stamp per charge, each a step wider
+    // the steps have to clear the bird itself: at 1.13 the margin round the
+    // body is a couple of pixels and the bird covers its own innermost shell
+    const STEP=[1.22,1.5,1.8], AL=[1,0.76,0.56];
     const flare=1+(graceT>0?graceT*1.4:0);          // one just took a hit
     const quiet=(surfing||starred)?0.45:1;          // an aura is already lit
     ctx.save(); ctx.globalCompositeOperation='lighter';
-    // gold has to be laid on DARK to stay gold: added light at high lightness
-    // is nearly white, which came out as a grey rim. 50% lightness keeps the
-    // chroma, and the stack does the brightening.
-    const STEP=[1.13,1.29,1.48], AL=[0.34,0.24,0.17], HUE=[45,39,33];
     for(let i=0;i<shells;i++){
-      const sc=STEP[i]+Math.sin(t*2.4+i*1.15)*0.016;
-      ctx.globalAlpha=clamp(AL[i]*flare*quiet,0,0.7);
-      ctx.shadowColor=`hsl(${HUE[i]+4},100%,52%)`; ctx.shadowBlur=(3+i*3.5)*SC;
-      drawModel(skin, s*sc, `hsl(${HUE[i]},100%,${52-i*2}%)`, bodyH, bodySat, bodyLum, bird.wing, null);
+      const w=need*(STEP[i]+Math.sin(t*2.4+i*1.15)*0.016);
+      ctx.globalAlpha=clamp(AL[i]*flare*quiet,0,1);
+      ctx.drawImage(shCv,-w/2,-w/2,w,w);
     }
     ctx.restore();
   }
