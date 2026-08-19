@@ -91,7 +91,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.14.2 zones beta';
+const VERSION='Z0.15.0 zones beta';
 let cv = document.getElementById('c');
 let ctx = cv.getContext('2d');
 
@@ -1086,8 +1086,9 @@ function absorbHit(sx,sy){
   burst(sx,sy,20,30,320*SC,5*SC);
   return true;
 }
-// dsave: true when the safe opening was below the bird at impact — i.e. a
-// swipe-down swoop would have dodged this death (drives the swoop hint)
+// dsave: true when the safe opening lay in the direction a swoop travels —
+// below the bird normally, above it under TOPSY (drives the swoop hint)
+const swoopable=oy=> (oy-bird.y)*diveDir() > 6;
 function die(dsave){
   if(starT>0||surfT>0) return;
   if(buddy){
@@ -1140,15 +1141,18 @@ function flap(){
 // half the tunnel per swipe (two swipes from the ceiling reach the floor
 // zone). No cooldown — but a swipe inside the bottom 30% aims past the
 // wall and slams you into the floor: diving there is a deliberate gamble.
+// which way a swoop travels: away from the flap, so under TOPSY — where the
+// flap pushes DOWN — the whole move mirrors and the swoop carries you UP
+const diveDir=()=> zTrait('topsy')? -1 : 1;
 function dive(){
   if(state!=='play') return;
   if(diveUses<3){ diveUses++; try{ localStorage.setItem('fb_dives',diveUses); }catch(e){} }
-  const yMax=R-BIRD_R-2;
-  diveTo = bird.y > yMax*0.4 ? yMax+BIRD_R : Math.min(yMax*0.6, bird.y+yMax);
+  const yMax=R-BIRD_R-2, dv=diveDir(), y=bird.y*dv;   // measure in swoop-space
+  diveTo = (y > yMax*0.4 ? yMax+BIRD_R : Math.min(yMax*0.6, y+yMax))*dv;
   bird.wing=0;
   beep(300,180,0.4,'sine',0.2);
   const [bx,by]=proj(0,bird.y,BZ);
-  burst(bx,by-14*SC,5,(hue+180)%360,150*SC,3*SC);
+  burst(bx,by-14*SC*dv,5,(hue+180)%360,150*SC,3*SC);
 }
 // debug: the exit for ?debug=poweroverwhelming — turns the flag off, scrubs
 // it from the URL so a reload doesn't re-arm it, and lets the shield lapse
@@ -2152,7 +2156,8 @@ window.addEventListener('pointermove',e=>{
   if(pressDown){ pressX=e.clientX; pressY=e.clientY; }
   if(state==='map'){ mpMove(e); return; }
   if(state==='play' && swipePid===e.pointerId){
-    if(performance.now()-swipeT0<300 && e.clientY-swipeY0>Math.max(30,H*0.045)){ swipePid=null; dive(); }
+    // the gesture points where you want to go, so TOPSY reads it upside down
+    if(performance.now()-swipeT0<300 && (e.clientY-swipeY0)*diveDir()>Math.max(30,H*0.045)){ swipePid=null; dive(); }
   }
   if(state==='shop' && shopPid===e.pointerId){
     const dy=e.clientY-shopY0;
@@ -2321,9 +2326,10 @@ function update(dt){
 
     // bird physics (an active swipe-dive overrides gravity until it lands)
     if(diveTo!==null){
-      bird.vy = DIVE_V;
+      const dv=diveDir();
+      bird.vy = DIVE_V*dv;
       bird.y += bird.vy*d;
-      if(bird.y>=diveTo){ bird.y=diveTo; bird.vy=0; diveTo=null; }
+      if(bird.y*dv>=diveTo*dv){ bird.y=diveTo; bird.vy=0; diveTo=null; }
     } else {
       const gd = zTrait('topsy')?-1:1;
       bird.vy = clamp(bird.vy + gd*(GRAV + (zTrait('wind')?Math.sin(t*0.55)*85:0))*d, -MAXFALL, MAXFALL);
@@ -2333,7 +2339,7 @@ function update(dt){
     if(Math.abs(bird.y) > R-BIRD_R-2){
       bird.y=clamp(bird.y,-(R-BIRD_R-2),R-BIRD_R-2); diveTo=null;
       if(shield0||starT>0||surfT>0||graceT>0){ bird.vy*= -0.4; if(levelQ&&lvlStat) lvlStat.bumps++; }
-      else { const [wx,wy]=proj(0,bird.y,BZ); if(absorbHit(wx,wy)){ bird.vy*= -0.4; } else die(bird.y<0); }
+      else { const [wx,wy]=proj(0,bird.y,BZ); if(absorbHit(wx,wy)){ bird.vy*= -0.4; } else die(diveDir()>0 ? bird.y<0 : bird.y>0); }
     }
     trail.unshift(bird.y); if(trail.length>14) trail.length=14;
 
@@ -2371,7 +2377,7 @@ function update(dt){
             gain(12,'SMASH!',sx,sy-60*SC,e.hue); if(levelQ) lvlStat.bumps++; comboSmash(sx,sy); sfx.smash(); burst(sx,sy,30,e.hue,420*SC,6*SC); shake=Math.max(shake,10);
           } else if(graceT>0){ /* silent grace pass-through */ }
           else if(absorbHit(sx,sy)){}
-          else die(e.y - bird.y > 6);
+          else die(swoopable(e.y));
         }
         else if(e.type==='bar'){
           // bar lands vertical (aligned with the flap axis); the bird's
@@ -2385,7 +2391,7 @@ function update(dt){
           else if(inv){ gain(10,'ZAP!',sx,sy-60*SC,10); if(levelQ) lvlStat.bumps++; comboSmash(sx,sy); sfx.smash(); burst(sx,sy,24,10,380*SC,5*SC); }
           else if(graceT>0){ /* silent */ }
           else if(absorbHit(sx,sy)){}
-          else die((Math.sin(e.af)>0?1:-1)*e.d - bird.y > 6);
+          else die(swoopable((Math.sin(e.af)>0?1:-1)*e.d));
         }
         else if(e.type==='doors'){
           // panels are wall-to-wall: only the slit at e.d lets you through
@@ -2397,7 +2403,7 @@ function update(dt){
           else if(inv){ gain(10,'CLANG!',sx,sy-60*SC,210); if(levelQ) lvlStat.bumps++; comboSmash(sx,sy); sfx.smash(); burst(sx,sy,24,210,380*SC,5*SC); }
           else if(graceT>0){ /* silent */ }
           else if(absorbHit(sx,sy)){}
-          else die(e.d - bird.y > 6);
+          else die(swoopable(e.d));
         }
         else if(e.type==='laser'){
           // both beams cross at (0, e.d): clearance is vertical distance
@@ -2415,7 +2421,7 @@ function update(dt){
           else if(inv){ gain(10,'ZAP!',sx,sy-60*SC,350); if(levelQ) lvlStat.bumps++; comboSmash(sx,sy); sfx.smash(); burst(sx,sy,24,350,380*SC,5*SC); }
           else if(graceT>0){ /* silent */ }
           else if(absorbHit(sx,sy)){}
-          else die(e.d - bird.y > 6);
+          else die(swoopable(e.d));
         }
         else if(e.type==='rocks'){
           let hit=false, close=false;
@@ -2430,7 +2436,7 @@ function update(dt){
             if(inv){ gain(12,'SMASH!',sx,sy-60*SC,280); if(levelQ) lvlStat.bumps++; comboSmash(sx,sy); sfx.smash(); burst(sx,sy,30,280,420*SC,6*SC); shake=Math.max(shake,10); }
             else if(graceT>0){ /* silent */ }
             else if(absorbHit(sx,sy)){}
-            else die([-48,-26,0,26,48].some(sy2=> sy2 - bird.y > 6 && e.rocks.every(r=> r.deco || Math.abs(r.y-sy2)>8)));
+            else die([-48,-26,0,26,48].some(sy2=> swoopable(sy2) && e.rocks.every(r=> r.deco || Math.abs(r.y-sy2)>8)));
           }
           else { combo++; gain(15,null,sx,sy,0); sfx.ding(combo); if(close){ gain(15,'CLOSE!',sx,sy-100*SC,55,0); sfx.close(); } }
         }
@@ -4183,17 +4189,19 @@ function drawDead(){
     ctx.beginPath();
     if(ctx.roundRect) ctx.roundRect(-hw/2,-hh/2,hw,hh,hh/2); else ctx.rect(-hw/2,-hh/2,hw,hh);
     ctx.fill(); ctx.stroke();
-    const ph=(t*1.1)%1, fx=-hw/2+hh*0.62, fy=(-0.26+ph*0.5)*hh;
+    // the finger drags whichever way the swoop goes in this zone
+    const dv=diveDir();
+    const ph=(t*1.1)%1, fx=-hw/2+hh*0.62, fy=(-0.26+ph*0.5)*hh*dv;
     ctx.strokeStyle='rgba(140,220,255,0.55)'; ctx.lineWidth=4*US; ctx.lineCap='round';
-    ctx.beginPath(); ctx.moveTo(fx,-hh*0.26); ctx.lineTo(fx,fy); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(fx,-hh*0.26*dv); ctx.lineTo(fx,fy); ctx.stroke();
     ctx.fillStyle='#fff';
     ctx.beginPath(); ctx.arc(fx,fy,5.5*US,0,TAU); ctx.fill();
     ctx.strokeStyle='hsl(195,100%,70%)'; ctx.lineWidth=2.5*US; ctx.lineJoin='round';
-    ctx.beginPath(); ctx.moveTo(fx-5*US,hh*0.16); ctx.lineTo(fx,hh*0.30); ctx.lineTo(fx+5*US,hh*0.16); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(fx-5*US,hh*0.16*dv); ctx.lineTo(fx,hh*0.30*dv); ctx.lineTo(fx+5*US,hh*0.16*dv); ctx.stroke();
     ctx.textAlign='left';
     ctx.fillStyle='#fff';
     ctx.font=`900 ${Math.round(15*US)}px system-ui,sans-serif`;
-    ctx.fillText('SWIPE DOWN', fx+hh*0.40, -hh*0.15);
+    ctx.fillText(dv>0?'SWIPE DOWN':'SWIPE UP', fx+hh*0.40, -hh*0.15);
     ctx.font=`700 ${Math.round(11*US)}px system-ui,sans-serif`;
     ctx.fillStyle='rgba(255,255,255,0.75)';
     ctx.fillText('to swoop out of danger', fx+hh*0.40, hh*0.17);
