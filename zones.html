@@ -91,7 +91,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.15.1 zones beta';
+const VERSION='Z0.15.2 zones beta';
 let cv = document.getElementById('c');
 let ctx = cv.getContext('2d');
 
@@ -958,9 +958,10 @@ function spawn(z){
       // it orbits like a gate's hole and lands on its true spot at the
       // plane, so the aperture the collision reads is the one you flew at.
       // pf is the pump's rate PER UNIT OF DEPTH, not per second, so the
-      // aperture bottoms out at the plane however fast you are travelling
+      // aperture bottoms out at the plane however fast you are travelling.
+      // Halved: one long breath on the way in reads better than three
       const spin = wrand(0.004,0.011)*(wrng()<0.5?-1:1);
-      ents.push({type:'iris', z, thf:Math.atan2(hy2,hx2), d:Math.hypot(hx2,hy2), spin, x:hx2, y:hy2, hr, pf:wrand(0.018,0.030), hue:(hue+wrand(180,300))%360, done:false});
+      ents.push({type:'iris', z, thf:Math.atan2(hy2,hx2), d:Math.hypot(hx2,hy2), spin, x:hx2, y:hy2, hr, pf:wrand(0.009,0.015), hue:(hue+wrand(180,300))%360, done:false});
     } else if(kind2==='doors'){                    // BLAST DOORS — closing as you arrive
       // the slit sits at top, middle, or bottom and the panels close on
       // approach, reaching their final opening exactly at the plane —
