@@ -91,7 +91,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.10.0 zones beta';
+const VERSION='Z0.10.1 zones beta';
 let cv = document.getElementById('c');
 let ctx = cv.getContext('2d');
 
@@ -1778,22 +1778,26 @@ function mpDraw(){
     const top=mpZoneTop(win,zi);
     if(top+G.ZONE_H<mpCam-40||top>mpCam+viewH+40) continue;
     const mz=mpMaze(win[zi].n);
+    // inside the zone's own frame, exactly like every other layer: mapping a
+    // point that already had the camera folded into it flips the camera's
+    // sign, which is what sent the tunnel sliding the wrong way
+    ctx.save(); mpOrgTr(top);
     ctx.beginPath();
-    for(let i=0;i<mz.lut.length;i++){ const p=mz.lut[i], a=p.y+top-mpCam;
-      const px=LAND?mpCX(p.x,a):p.x, py=LAND?mpCY(p.x,a):a;
+    for(let i=0;i<mz.lut.length;i++){ const p=mz.lut[i];
+      const px=mpCX(p.x,p.y), py=mpCY(p.x,p.y);
       i?ctx.lineTo(px,py):ctx.moveTo(px,py); }
     ctx.strokeStyle='hsla('+((t*60)%360)+',90%,65%,0.09)'; ctx.lineWidth=G.TUBE.beamW; ctx.stroke();
     ctx.strokeStyle='rgba(255,255,255,0.05)'; ctx.lineWidth=G.TUBE.beamW*0.45; ctx.stroke();
     const cn=win[zi].vis==='current'?mz.nodes[ZP.lvl-1]:null;
     for(let d=0,k2=0; d<mz.len; d+=G.TUBE.ringGap,k2++){
-      const p=mpPath(mz,d), pa=p.y+top-mpCam;
+      const p=mpPath(mz,d), pa=top+mpAlongOf(p.x,p.y)-mpCam;   // cull only
       if(pa<-30||pa>viewH+30) continue;
       const hue=(d*0.7+top*0.7+t*130)%360;
       const wave=Math.sin(t*6-(d+top)*0.055);
       const near=cn&&Math.hypot(p.x-cn[0],p.y-cn[1])<G.TUBE.pulseNear;
       const puls=(1+wave*0.16)*(near?1.12:1);
       const lum=62+wave*10+(near?8:0);
-      ctx.save(); ctx.translate(LAND?mpCX(p.x,pa):p.x, LAND?mpCY(p.x,pa):pa);
+      ctx.save(); ctx.translate(mpCX(p.x,p.y),mpCY(p.x,p.y));
       ctx.rotate(mpDir(p.ang)+Math.PI/2);
       ctx.strokeStyle='hsla('+hue+',100%,'+lum+'%,0.30)'; ctx.lineWidth=3.6;
       ctx.beginPath(); ctx.ellipse(0,0,G.TUBE.rx*puls,G.TUBE.ry*puls,0,0,TAU); ctx.stroke();
@@ -1802,12 +1806,14 @@ function mpDraw(){
       ctx.restore();
     }
     for(const s2 of MSPARKS){
-      const d=((s2.d+t*s2.sp/mz.len)%1)*mz.len, p=mpPath(mz,d), pa=p.y+top-mpCam;
+      const d=((s2.d+t*s2.sp/mz.len)%1)*mz.len, p=mpPath(mz,d);
+      const pa=top+mpAlongOf(p.x,p.y)-mpCam;
       if(pa<-20||pa>viewH+20) continue;
       const hue=(d*0.7+top*0.7+t*130)%360, tw=0.55+Math.sin(t*6+s2.ph)*0.35;
       ctx.fillStyle='hsla('+hue+',100%,78%,'+tw+')';
-      ctx.beginPath(); ctx.arc(LAND?mpCX(p.x,pa):p.x, LAND?mpCY(p.x,pa):pa, 2,0,TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(mpCX(p.x,p.y),mpCY(p.x,p.y),2,0,TAU); ctx.fill();
     }
+    ctx.restore();
   }
   ctx.restore();
   /* per-zone UI + veils */
