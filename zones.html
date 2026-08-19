@@ -91,7 +91,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.13.0 zones beta';
+const VERSION='Z0.13.1 zones beta';
 let cv = document.getElementById('c');
 let ctx = cv.getContext('2d');
 
@@ -2872,10 +2872,15 @@ function drawEnt(e){
     // tunnel itself, shut is its final size. Keyed to depth rather than to
     // the clock — like the gate's spin and the slider's gap — the cosine is
     // at its trough exactly where zz meets the plane, so it bottoms out on
-    // the frame you fly through it whatever your speed. Smoothstep gives the
-    // swing a beat of hang at each end instead of gliding straight through.
+    // the frame you fly through it whatever your speed. The S-curve on top
+    // of the cosine is what stops it reading as clockwork: it holds near
+    // each end and crosses the middle quickly, so the iris rests open, sweeps
+    // shut, rests shut. EASE alone sets how much hang — 1 leaves the bare
+    // cosine, higher squares it up — and it leaves the period untouched.
+    const EASE=3;
     let sw=(1-Math.cos((zz-BZ)*e.pf))/2;
-    sw=sw*sw*(3-2*sw);
+    const sa=Math.pow(sw,EASE), sb=Math.pow(1-sw,EASE);
+    sw=sa/(sa+sb);
     const hrRaw=e.hr+(R-e.hr)*sw;
     const th=e.thf + e.spin*(zz-BZ);
     const [hx,hy]=projW(Math.cos(th)*e.d, Math.sin(th)*e.d, zz);
