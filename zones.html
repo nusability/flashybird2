@@ -91,7 +91,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.10.1 zones beta';
+const VERSION='Z0.11.0 zones beta';
 let cv = document.getElementById('c');
 let ctx = cv.getContext('2d');
 
@@ -953,7 +953,10 @@ function spawn(z){
       // than its offset would be mathematically impassable
       const hr = wrand(shrink, shrink+3);
       const hx2 = wrand(-1,1)*(hr-10), hy2 = wrand(-28,28);
-      ents.push({type:'iris', z, thf:Math.atan2(hy2,hx2), d:Math.hypot(hx2,hy2), x:hx2, y:hy2, hr, hrX:wrand(20,30), hue:(hue+wrand(180,300))%360, done:false});
+      // it orbits like a gate's hole and lands on its true spot at the
+      // plane, so the aperture the collision reads is the one you flew at
+      const spin = wrand(0.004,0.011)*(wrng()<0.5?-1:1);
+      ents.push({type:'iris', z, thf:Math.atan2(hy2,hx2), d:Math.hypot(hx2,hy2), spin, x:hx2, y:hy2, hr, hrX:wrand(20,30), hue:(hue+wrand(180,300))%360, done:false});
     } else if(kind2==='doors'){                    // BLAST DOORS — closing as you arrive
       // the slit sits at top, middle, or bottom and the panels close on
       // approach, reaching their final opening exactly at the plane —
@@ -961,7 +964,7 @@ function spawn(z){
       const g = wrand(shrink, shrink+4)*0.75;
       const band = wirand(0,2);
       const d = (band-1)*28 + wrand(-6,6);
-      ents.push({type:'doors', z, d, g, done:false});
+      ents.push({type:'doors', z, d, g, hue:(hue+wrand(0,120))%360, done:false});
     } else {                                       // LASERS — an X pinned to the wall
       // two beams cross on the flight axis: pass above or below the
       // crossing. Emitters ride the wall, the X drifts and slowly spins
@@ -2861,16 +2864,21 @@ function drawEnt(e){
   }
   else if(e.type==='iris'){
     const [cx,cy,k]=projW(0,0,zz);
-    // aperture holds wide open and only starts closing in the last
-    // stretch, landing at its true size at the plane — no telegraph
-    const prog=clamp((zz-BZ)/650,0,1);
-    const [hx,hy]=projW(Math.cos(e.thf)*e.d, Math.sin(e.thf)*e.d, zz);
+    // the same disc as a gate — same membrane, same rim, hole orbiting on a
+    // depth-keyed spin that lands on its true spot at the plane — except
+    // that the hole is also closing. The closing eases: raising prog to a
+    // power under 1 keeps the aperture wide while it is still far off and
+    // piles the shrinking into the last stretch, so it reaches its target
+    // size exactly as you arrive rather than creeping down all the way in.
+    const prog=Math.pow(clamp((zz-BZ)/650,0,1),0.55);
+    const th=e.thf + e.spin*(zz-BZ);
+    const [hx,hy]=projW(Math.cos(th)*e.d, Math.sin(th)*e.d, zz);
     const hrNow=(e.hr+e.hrX*prog)*k, rimAng=rot+zz*twist;
     const a=clamp(1.6-zz/900,0.1,0.92);
     ringPath(cx,cy,R*k,rimAng,16);
     ctx.moveTo(hx+hrNow,hy);
     ctx.arc(hx,hy,hrNow,0,TAU,true);
-    ctx.fillStyle=`hsla(${e.hue},70%,${26+Math.sin(t*6)*5}%,${a})`;
+    ctx.fillStyle=`hsla(${e.hue},85%,${30+Math.sin(t*6)*6}%,${a})`;
     ctx.fill('evenodd');
     ctx.strokeStyle=`hsla(${e.hue},95%,62%,${a*0.8})`;
     ctx.lineWidth=clamp(900/zz,1,8)*SC;
@@ -2897,20 +2905,20 @@ function drawEnt(e){
     ctx.save();
     ringPath(cx,cy,R*k,rimAng,16); ctx.clip();
     const span=(R+12)*k;
-    ctx.fillStyle=`hsla(215,32%,${26+Math.sin(t*4)*3}%,${a})`;
+    ctx.fillStyle=`hsla(${e.hue},72%,${28+Math.sin(t*4)*4}%,${a})`;
     ctx.fillRect(cx-span, cy-span, span*2, gy1-(cy-span));
     ctx.fillRect(cx-span, gy2, span*2, cy+span-gy2);
     const pulse=0.7+Math.sin(t*9)*0.3;
     ctx.lineCap='round';
-    ctx.strokeStyle=`hsla(48,100%,${58+pulse*14}%,${a})`;
+    ctx.strokeStyle=`hsla(${e.hue},100%,${58+pulse*14}%,${a})`;
     ctx.lineWidth=clamp(500/zz,1,5)*SC;
-    ctx.shadowColor='hsl(48,100%,60%)'; ctx.shadowBlur=14*SC*a;
+    ctx.shadowColor=`hsl(${e.hue},100%,60%)`; ctx.shadowBlur=14*SC*a;
     ctx.beginPath(); ctx.moveTo(cx-span,gy1); ctx.lineTo(cx+span,gy1);
     ctx.moveTo(cx-span,gy2); ctx.lineTo(cx+span,gy2); ctx.stroke();
     ctx.shadowBlur=0;
     ctx.restore();
     // rim stroke sits on top, unclipped, so the wall ring stays crisp
-    ctx.strokeStyle=`hsla(215,60%,55%,${a*0.7})`;
+    ctx.strokeStyle=`hsla(${e.hue},95%,62%,${a*0.8})`;
     ctx.lineWidth=clamp(900/zz,1,7)*SC;
     ringPath(cx,cy,R*k,rimAng,16); ctx.stroke();
   }
