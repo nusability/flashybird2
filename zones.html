@@ -91,7 +91,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.11.0 zones beta';
+const VERSION='Z0.11.1 zones beta';
 let cv = document.getElementById('c');
 let ctx = cv.getContext('2d');
 
@@ -2866,11 +2866,16 @@ function drawEnt(e){
     const [cx,cy,k]=projW(0,0,zz);
     // the same disc as a gate — same membrane, same rim, hole orbiting on a
     // depth-keyed spin that lands on its true spot at the plane — except
-    // that the hole is also closing. The closing eases: raising prog to a
-    // power under 1 keeps the aperture wide while it is still far off and
-    // piles the shrinking into the last stretch, so it reaches its target
-    // size exactly as you arrive rather than creeping down all the way in.
-    const prog=Math.pow(clamp((zz-BZ)/650,0,1),0.55);
+    // that the hole is also closing. Two things shape the closing:
+    // the power under 1 holds the aperture wide while it is still far off
+    // and piles the shrinking into the last stretch, and HOLD finishes that
+    // stretch early. Landing the target exactly AT the plane sounds right
+    // and plays wrong: the plane is one frame nobody sees, so the aperture
+    // stayed 30-70% wider than a gate's through the whole window where you
+    // judge it and commit. Shut it a beat before instead, and the size you
+    // fly at is the size you were looking at.
+    const HOLD=90;
+    const prog=Math.pow(clamp((zz-BZ-HOLD)/(650-HOLD),0,1),0.55);
     const th=e.thf + e.spin*(zz-BZ);
     const [hx,hy]=projW(Math.cos(th)*e.d, Math.sin(th)*e.d, zz);
     const hrNow=(e.hr+e.hrX*prog)*k, rimAng=rot+zz*twist;
