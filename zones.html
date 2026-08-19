@@ -91,7 +91,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.12.1 zones beta';
+const VERSION='Z0.13.0 zones beta';
 let cv = document.getElementById('c');
 let ctx = cv.getContext('2d');
 
@@ -955,10 +955,10 @@ function spawn(z){
       const hx2 = wrand(-1,1)*(hr-10), hy2 = wrand(-28,28);
       // it orbits like a gate's hole and lands on its true spot at the
       // plane, so the aperture the collision reads is the one you flew at.
-      // pph/psp give each iris its own pumping phase and rate, so a pair
-      // arriving together never breathe in lockstep
+      // pf is the pump's rate PER UNIT OF DEPTH, not per second, so the
+      // aperture bottoms out at the plane however fast you are travelling
       const spin = wrand(0.004,0.011)*(wrng()<0.5?-1:1);
-      ents.push({type:'iris', z, thf:Math.atan2(hy2,hx2), d:Math.hypot(hx2,hy2), spin, x:hx2, y:hy2, hr, hrX:wrand(20,30), pph:wrand(0,TAU), psp:wrand(4,7), hue:(hue+wrand(180,300))%360, done:false});
+      ents.push({type:'iris', z, thf:Math.atan2(hy2,hx2), d:Math.hypot(hx2,hy2), spin, x:hx2, y:hy2, hr, pf:wrand(0.018,0.030), hue:(hue+wrand(180,300))%360, done:false});
     } else if(kind2==='doors'){                    // BLAST DOORS — closing as you arrive
       // the slit sits at top, middle, or bottom and the panels close on
       // approach, reaching their final opening exactly at the plane —
@@ -2868,30 +2868,15 @@ function drawEnt(e){
     const [cx,cy,k]=projW(0,0,zz);
     // the same disc as a gate — same membrane, same rim, hole orbiting on a
     // depth-keyed spin that lands on its true spot at the plane — except
-    // that the hole is also closing. Two things shape the closing:
-    // the power under 1 holds the aperture wide while it is still far off
-    // and piles the shrinking into the last stretch, and HOLD finishes that
-    // stretch early. Landing the target exactly AT the plane sounds right
-    // and plays wrong: the plane is one frame nobody sees, so the aperture
-    // stayed 30-70% wider than a gate's through the whole window where you
-    // judge it and commit. Shut it a beat before instead, and the size you
-    // fly at is the size you were looking at.
-    const HOLD=90;
-    const p2=clamp((zz-BZ-HOLD)/(650-HOLD),0,1);
-    const prog=Math.pow(p2,0.55);
-    // and it pumps on the way in, across its WHOLE range: the wave swings
-    // from wide open down to the final size and back, so every cycle slams
-    // shut and reopens. prog is the envelope, so the widest the pump can
-    // reach keeps dropping as the iris closes, and at the lock the envelope
-    // is zero and the pumping is simply gone — chaos while you are guessing,
-    // dead still for the quarter second where you commit.
-    // The inner sine bends the phase rather than the height: the swing still
-    // reaches both ends every cycle, but never on a beat you can count.
-    // Its floor is the final size by construction, so it can bluff wider
-    // than it ends up, never narrower — a hole that flashed TIGHTER than the
-    // truth would punish a player for reading it right.
-    const osc=0.5+0.5*Math.sin(t*e.psp+e.pph+Math.sin(t*e.psp*0.37+e.pph)*0.9);
-    const hrRaw=e.hr + e.hrX*prog*osc;
+    // that the aperture pumps the whole width of the tunnel: wide open is the
+    // tunnel itself, shut is its final size. Keyed to depth rather than to
+    // the clock — like the gate's spin and the slider's gap — the cosine is
+    // at its trough exactly where zz meets the plane, so it bottoms out on
+    // the frame you fly through it whatever your speed. Smoothstep gives the
+    // swing a beat of hang at each end instead of gliding straight through.
+    let sw=(1-Math.cos((zz-BZ)*e.pf))/2;
+    sw=sw*sw*(3-2*sw);
+    const hrRaw=e.hr+(R-e.hr)*sw;
     const th=e.thf + e.spin*(zz-BZ);
     const [hx,hy]=projW(Math.cos(th)*e.d, Math.sin(th)*e.d, zz);
     const hrNow=hrRaw*k, rimAng=rot+zz*twist;
@@ -2904,10 +2889,15 @@ function drawEnt(e){
     ctx.strokeStyle=`hsla(${e.hue},95%,62%,${a*0.8})`;
     ctx.lineWidth=clamp(900/zz,1,8)*SC;
     ringPath(cx,cy,R*k,rimAng,16); ctx.stroke();
+    // at full open the hole is the tunnel, so its rim is clipped to the wall
+    // ring — otherwise it would draw a circle out over the tunnel itself
+    ctx.save();
+    ringPath(cx,cy,R*k,rimAng,16); ctx.clip();
     ctx.strokeStyle=`hsla(${e.hue},100%,72%,${a})`;
     ctx.lineWidth=clamp(700/zz,1,7)*SC;
     ctx.shadowColor=`hsl(${e.hue},100%,60%)`; ctx.shadowBlur=18*SC*a;
     ctx.beginPath(); ctx.arc(hx,hy,hrNow,0,TAU); ctx.stroke();
+    ctx.restore();
     ctx.shadowBlur=0;
   }
   else if(e.type==='doors'){
