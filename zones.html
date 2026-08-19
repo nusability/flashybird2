@@ -91,7 +91,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.15.0 zones beta';
+const VERSION='Z0.15.1 zones beta';
 let cv = document.getElementById('c');
 let ctx = cv.getContext('2d');
 
@@ -1693,8 +1693,13 @@ function mpTap(ux,ly,zi,along,px,py){
     }
   }
   if(onPlate){ mpBrief={n:z.n, traits:zoneTraits(z.n)}; return; }
-  const TH3=zoneInfo(z.n).TH;                // empty-space taps reach the theme
-  if(TH3.onTap) TH3.onTap(ux,ly,zoneInfo(z.n).P,t);
+  // empty-space taps reach the theme. It stores the spot and redraws it from
+  // its own overlay, which runs in the CELL's frame — so the point has to be
+  // mapped there first. Handing over the authored portrait coordinates put
+  // every landscape flourish in the wrong place: the ones whose themes clamp
+  // to the cell surfaced somewhere random, the rest fell off the strip.
+  const TH3=zoneInfo(z.n).TH;
+  if(TH3.onTap) themeCell(()=>TH3.onTap(mpCX(ux,ly),mpCY(ux,ly),zoneInfo(z.n).P,t));
   mpSparks.push({x:ux,wy:ly+top,along,at:t}); if(mpSparks.length>10) mpSparks.shift();
 }
 const mpSparks=[];
