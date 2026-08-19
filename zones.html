@@ -91,7 +91,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.11.1 zones beta';
+const VERSION='Z0.12.0 zones beta';
 let cv = document.getElementById('c');
 let ctx = cv.getContext('2d');
 
@@ -954,9 +954,11 @@ function spawn(z){
       const hr = wrand(shrink, shrink+3);
       const hx2 = wrand(-1,1)*(hr-10), hy2 = wrand(-28,28);
       // it orbits like a gate's hole and lands on its true spot at the
-      // plane, so the aperture the collision reads is the one you flew at
+      // plane, so the aperture the collision reads is the one you flew at.
+      // pph/psp give each iris its own pumping phase and rate, so a pair
+      // arriving together never breathe in lockstep
       const spin = wrand(0.004,0.011)*(wrng()<0.5?-1:1);
-      ents.push({type:'iris', z, thf:Math.atan2(hy2,hx2), d:Math.hypot(hx2,hy2), spin, x:hx2, y:hy2, hr, hrX:wrand(20,30), hue:(hue+wrand(180,300))%360, done:false});
+      ents.push({type:'iris', z, thf:Math.atan2(hy2,hx2), d:Math.hypot(hx2,hy2), spin, x:hx2, y:hy2, hr, hrX:wrand(20,30), pph:wrand(0,TAU), psp:wrand(6,11), hue:(hue+wrand(180,300))%360, done:false});
     } else if(kind2==='doors'){                    // BLAST DOORS — closing as you arrive
       // the slit sits at top, middle, or bottom and the panels close on
       // approach, reaching their final opening exactly at the plane —
@@ -2875,10 +2877,19 @@ function drawEnt(e){
     // judge it and commit. Shut it a beat before instead, and the size you
     // fly at is the size you were looking at.
     const HOLD=90;
-    const prog=Math.pow(clamp((zz-BZ-HOLD)/(650-HOLD),0,1),0.55);
+    const p2=clamp((zz-BZ-HOLD)/(650-HOLD),0,1);
+    const prog=Math.pow(p2,0.55);
+    // and it pumps on the way in — two detuned waves so the breathing never
+    // settles into a rhythm you can read the end size off. The amplitude is
+    // damped by the same p2 that drives the closing, so the pumping dies as
+    // the iris locks: chaos while you are guessing, dead still for the
+    // quarter second where you commit. The floor keeps a pump from ever
+    // dipping under the final size, so it can bluff wide but never narrow.
+    const wob=Math.sin(t*e.psp+e.pph)*0.62 + Math.sin(t*e.psp*1.73+e.pph*2.1)*0.38;
+    const hrRaw=Math.max(e.hr, e.hr + e.hrX*prog + wob*e.hrX*0.5*Math.sqrt(p2));
     const th=e.thf + e.spin*(zz-BZ);
     const [hx,hy]=projW(Math.cos(th)*e.d, Math.sin(th)*e.d, zz);
-    const hrNow=(e.hr+e.hrX*prog)*k, rimAng=rot+zz*twist;
+    const hrNow=hrRaw*k, rimAng=rot+zz*twist;
     const a=clamp(1.6-zz/900,0.1,0.92);
     ringPath(cx,cy,R*k,rimAng,16);
     ctx.moveTo(hx+hrNow,hy);
