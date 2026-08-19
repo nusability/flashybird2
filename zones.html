@@ -91,7 +91,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.9.2 zones beta';
+const VERSION='Z0.9.3 zones beta';
 let cv = document.getElementById('c');
 let ctx = cv.getContext('2d');
 
@@ -1457,10 +1457,27 @@ function doneFire(act){
   if(q.x2 || q.k===7){ exitToMap(); }
   else startLevel(q.n, q.k+1, false);
 }
-function mpS0(){ return W/G.UNIT_W; }
+/* map scale: scale to width as before, but never magnify past the size the
+   map has on a phone held upright. Landscape used to scale a 390-wide world
+   across an 844-wide screen — 2.2x — leaving a quarter of a zone on screen at
+   cartoon size. Capped, landscape keeps every element at its portrait size
+   and simply shows a narrower strip, centred, with the sky running out into
+   the margins. Every portrait phone is at or under the cap, so nothing there
+   moves. (Fitting the whole zone height instead was the other option, but at
+   0.54x on a landscape phone the level numbers land around six pixels.) */
+function mpS0(){ return Math.min(W/G.UNIT_W, 1.1); }
+function mpOffX(){ return (W-G.UNIT_W*mpS0())/2; }        // screen px
+function mpPad(){ return mpOffX()/mpS0(); }               // world units per side
 /* the zone plate sits at the TOP of its zone, above the maze's top lane —
    title first, its TWIST line under it, both inside PLATE_H of tap band */
 const PLATE_Y=25, PLATE_TRAIT_Y=40, PLATE_H=52;
+/* the plate rides the top of its zone, but a viewport shorter than a zone
+   (landscape) would scroll it away entirely — so once the zone's top edge is
+   above the screen the plate sticks to the screen instead, the way a section
+   header does. Portrait never reaches the clamp. */
+function mpPlateY(top){
+  return clamp(Math.max(PLATE_Y, mpCam-top+18), PLATE_Y, G.ZONE_H-30);
+}
 
 /* ---------------- the zone map ---------------- */
 const mpMazeCache={}, mpDressCache={};
@@ -1549,7 +1566,16 @@ function mpMaybeBrief(){
 }
 function mpSay(m,h){ mpToast=m; mpToastT=2.6; mpToastHue=h; }
 function mpMaxCam(win){ return Math.max(0,win.length*G.ZONE_H-H/mpS0()); }
-function mpZoneCam(win,zi){ return clamp(mpZoneTop(win,zi)-(H/mpS0()-G.ZONE_H)/2,0,mpMaxCam(win)); }
+function mpZoneCam(win,zi){
+  // a viewport shorter than a zone (landscape) can't show the whole thing, so
+  // it points at the level you're actually on rather than the zone's middle
+  const viewH=H/mpS0(); let focus=G.ZONE_H/2;
+  if(viewH<G.ZONE_H && win[zi] && win[zi].vis==='current'){
+    const nd=mpMaze(win[zi].n).nodes[clamp(ZP.lvl,1,7)-1];
+    if(nd) focus=nd[1];
+  }
+  return clamp(mpZoneTop(win,zi)+focus-viewH/2,0,mpMaxCam(win));
+}
 function mpSnapCur(){ const win=mpWin(); mpSnapZi=win.findIndex(z=>z.vis==='current'); mpCam=mpZoneCam(win,mpSnapZi); mpMaybeBrief(); }
 function mpDown(e){ if(mpBrief){ mpBrief=null; return; } mpDragging=true; mpMoved=false; mpY0=e.clientY; mpCam0=mpCam; mpLastY=e.clientY; mpVel=0; }
 function mpMove(e){ if(!mpDragging) return;
@@ -1560,7 +1586,7 @@ function mpMove(e){ if(!mpDragging) return;
 function mpUp(e){
   if(!mpDragging) return; mpDragging=false;
   const win=mpWin();
-  if(!mpMoved){ mpTap(e.clientX/mpS0(), e.clientY/mpS0()+mpCam); return; }
+  if(!mpMoved){ mpTap((e.clientX-mpOffX())/mpS0(), e.clientY/mpS0()+mpCam); return; }
   const center=mpCam+H/mpS0()/2;
   const zi=clamp(win.length-1-Math.floor(clamp(center,0,win.length*G.ZONE_H-1)/G.ZONE_H),0,win.length-1);
   mpSnapZi = Math.abs(mpVel)>4 ? clamp(zi+(mpVel<0?-1:1),0,win.length-1) : zi;
@@ -1572,7 +1598,7 @@ function mpTap(ux,wy){
   const zi=clamp(win.length-1-Math.floor(clamp(wy,0,win.length*G.ZONE_H-1)/G.ZONE_H),0,win.length-1);
   const z=win[zi], top=mpZoneTop(win,zi), ly=wy-top;
   { // screen-space buttons first
-    const sx=ux*mpS0(), sy=(wy-mpCam)*mpS0();
+    const sx=ux*mpS0()+mpOffX(), sy=(wy-mpCam)*mpS0();
     const hit=r=>r&&sx>=r[0]&&sx<=r[0]+r[2]&&sy>=r[1]&&sy<=r[1]+r[3];
     if(hit(updRect)){ doUpdate(); return; }
     if(hit(muteRect)){ muted=!muted; save(); applyMute(); return; }
@@ -1580,8 +1606,12 @@ function mpTap(ux,wy){
     if(hit(deepRect)){ state='title'; return; }
     if(hit(mpTopRect)){ mpSnapCur(); return; }
   }
-  if(z.vis==='next' && zi===mpFocusZi && ly<PLATE_H && zoneTraits(z.n).length){
-    mpBrief={n:z.n, traits:zoneTraits(z.n)}; return;      // peek the coming twists
+  const plateY=mpPlateY(top);
+  const onPlate = zi===mpFocusZi && Math.abs(ly-plateY)<PLATE_H/2 && zoneTraits(z.n).length>0;
+  // a pinned plate floats over the map, so it takes the tap ahead of whatever
+  // it happens to be covering; sitting in its own strip it yields to the nodes
+  if(onPlate && (plateY>PLATE_Y+0.5 || z.vis==='next')){
+    mpBrief={n:z.n, traits:zoneTraits(z.n)}; return;      // the twists explain themselves
   }
   if(z.vis==='next'||z.vis==='hidden'){ mpSay('the tunnel ahead is still dark…',260); return; }
   const mz=mpMaze(z.n);
@@ -1600,9 +1630,7 @@ function mpTap(ux,wy){
       return;
     }
   }
-  if(zi===mpFocusZi && ly<PLATE_H && zoneTraits(z.n).length){
-    mpBrief={n:z.n, traits:zoneTraits(z.n)}; return;      // twist line explains itself
-  }
+  if(onPlate){ mpBrief={n:z.n, traits:zoneTraits(z.n)}; return; }
   const TH3=zoneInfo(z.n).TH;                // empty-space taps reach the theme
   if(TH3.onTap) TH3.onTap(ux,ly,zoneInfo(z.n).P,t);
   mpSparks.push({x:ux,wy,at:t}); if(mpSparks.length>10) mpSparks.shift();
@@ -1633,14 +1661,18 @@ function mpDraw(){
   mpFocusZi=clamp(win.length-1-Math.floor(clamp(mpCam+H/mpS/2,0,win.length*G.ZONE_H-1)/G.ZONE_H),0,win.length-1);
   mpToastT=Math.max(0,mpToastT-0.017);
   ctx.fillStyle='#05010f'; ctx.fillRect(0,0,W,H);
-  ctx.save(); ctx.scale(mpS,mpS);
-  const viewH=H/mpS;
+  ctx.save(); ctx.translate(mpOffX(),0); ctx.scale(mpS,mpS);
+  const viewH=H/mpS, PAD=mpPad();
   const starP=4*G.ZONE_H;
   for(const st of MSTARS){
     const sy=(((st.y-mpCam*0.82)%starP)+starP)%starP;
     if(sy>viewH+10) continue;
     ctx.fillStyle='rgba(255,255,255,'+(0.25+Math.sin(t*2+st.ph)*0.2)+')';
-    ctx.beginPath(); ctx.arc(st.x,sy,st.r,0,TAU); ctx.fill();
+    for(let w2=-1;w2<=1;w2++){                 // tile sideways to fill margins
+      const sx2=st.x+w2*G.UNIT_W;
+      if(sx2<-PAD-2||sx2>G.UNIT_W+PAD+2) continue;
+      ctx.beginPath(); ctx.arc(sx2,sy,st.r,0,TAU); ctx.fill();
+    }
   }
   const BLEND=120;
   for(let zi=0;zi<win.length;zi++){         // feathered zone backgrounds
@@ -1651,7 +1683,7 @@ function mpDraw(){
     const bg=ctx.createLinearGradient(0,gTop-mpCam,0,gBot-mpCam);
     bg.addColorStop(0,hexA(P.bg[1],0)); bg.addColorStop(BLEND/(gBot-gTop),hexA(P.bg[1],0.9));
     bg.addColorStop(1-BLEND/(gBot-gTop),hexA(P.bg[0],0.9)); bg.addColorStop(1,hexA(P.bg[0],0));
-    ctx.fillStyle=bg; ctx.fillRect(0,gTop-mpCam,G.UNIT_W,gBot-gTop);
+    ctx.fillStyle=bg; ctx.fillRect(-PAD,gTop-mpCam,G.UNIT_W+2*PAD,gBot-gTop);
   }
   for(let zi=0;zi<win.length;zi++){         // set dressing + critters
     const top=mpZoneTop(win,zi), z=win[zi];
@@ -1761,7 +1793,8 @@ function mpDraw(){
     const lbl='UPDATE '+updReady.split(' ')[0], ubh=38*US;
     ctx.font=`800 ${Math.round(ubh*0.38)}px system-ui,sans-serif`;
     const ubw=Math.min(W-32, ctx.measureText(lbl).width+36*US);
-    const plateBot=(mpZoneTop(win,mpFocusZi)+PLATE_H-mpCam)*mpS;
+    const fTop=mpZoneTop(win,mpFocusZi);
+    const plateBot=(fTop+mpPlateY(fTop)+PLATE_H-PLATE_Y-mpCam)*mpS;
     const ucy=clamp(plateBot+22*US+ubh/2, SAFE_T+12+S3+14+ubh/2, barY-52*US);
     // floating over the map, not over a dark bar: lay an opaque plate down
     // first so the label reads against the tunnel
@@ -1857,8 +1890,15 @@ function mpZoneUI(win,zi){
   if(zi===mpFocusZi){                   // one zone announces itself at a time
     let plate='ZONE '+z.n+' · '+TH.name;
     if(z.vis==='done') plate+='  ★'+st.reduce((a,b)=>a+b,0)+'/21';
+    const py=mpPlateY(top);
+    if(py>PLATE_Y+0.5){        // pinned: lay a scrim so it reads over the map
+      const pd=mpPad(), sg=ctx.createLinearGradient(0,py-28,0,py+32);
+      sg.addColorStop(0,'rgba(5,1,15,0)'); sg.addColorStop(0.35,'rgba(5,1,15,0.7)');
+      sg.addColorStop(0.72,'rgba(5,1,15,0.58)'); sg.addColorStop(1,'rgba(5,1,15,0)');
+      ctx.fillStyle=sg; ctx.fillRect(-pd,py-28,G.UNIT_W+2*pd,60);
+    }
     ctx.fillStyle=P.text; ctx.shadowColor='hsla('+P.hue+',100%,60%,1)'; ctx.shadowBlur=9;
-    mpWavy(plate,cx,PLATE_Y,G.TEXT.zone-2);
+    mpWavy(plate,cx,py,G.TEXT.zone-2);
     ctx.shadowBlur=0;
     const ztr=zoneTraits(z.n);
     if(ztr.length){
@@ -1866,7 +1906,7 @@ function mpZoneUI(win,zi){
       ctx.fillStyle='hsla('+P.hue+',90%,75%,0.9)';
       // dark halo: the twist line now crosses the tunnel's bright exit column
       ctx.shadowColor='rgba(5,1,15,0.9)'; ctx.shadowBlur=6;
-      ctx.fillText('TWIST'+(ztr.length>1?'S':'')+' · '+ztr.map(k=>ZTRAITS[k].name).join(' · '),cx,PLATE_TRAIT_Y);
+      ctx.fillText('TWIST'+(ztr.length>1?'S':'')+' · '+ztr.map(k=>ZTRAITS[k].name).join(' · '),cx,py+PLATE_TRAIT_Y-PLATE_Y);
       ctx.shadowBlur=0;
     }
   }
@@ -1880,17 +1920,19 @@ function mpVeil(win,zi){
   const a=z.vis==='next'?0.78:0.93;
   const vg=ctx.createLinearGradient(0,G.ZONE_H,0,G.ZONE_H-BLEND);
   vg.addColorStop(0,hexA(P.veil,0)); vg.addColorStop(1,hexA(P.veil,a));
-  ctx.fillStyle=vg; ctx.fillRect(0,G.ZONE_H-BLEND,G.UNIT_W,BLEND);
-  ctx.fillStyle=hexA(P.veil,a); ctx.fillRect(0,-1,G.UNIT_W,G.ZONE_H-BLEND+1);
+  const PAD=mpPad();
+  ctx.fillStyle=vg; ctx.fillRect(-PAD,G.ZONE_H-BLEND,G.UNIT_W+2*PAD,BLEND);
+  ctx.fillStyle=hexA(P.veil,a); ctx.fillRect(-PAD,-1,G.UNIT_W+2*PAD,G.ZONE_H-BLEND+1);
   if(z.vis==='next' && zi===mpFocusZi){
     ctx.fillStyle='rgba(255,255,255,0.8)'; ctx.shadowColor='hsla('+P.hue+',100%,60%,0.9)'; ctx.shadowBlur=9;
-    mpWavy('ZONE '+z.n+' · '+info.TH.name,cx,PLATE_Y,G.TEXT.zone-2);
+    const py2=mpPlateY(top);
+    mpWavy('ZONE '+z.n+' · '+info.TH.name,cx,py2,G.TEXT.zone-2);
     ctx.shadowBlur=0;
     ctx.font='700 10px system-ui,sans-serif'; ctx.fillStyle='rgba(255,255,255,0.42)';
     ctx.textAlign='center';
     const ztr2=zoneTraits(z.n);
     ctx.shadowColor='rgba(5,1,15,0.9)'; ctx.shadowBlur=6;
-    ctx.fillText('clear zone '+(z.n-1)+' to light the way'+(ztr2.length?'  ·  TWIST'+(ztr2.length>1?'S':'')+' · '+ztr2.map(k=>ZTRAITS[k].name).join(' · '):''),cx,PLATE_TRAIT_Y);
+    ctx.fillText('clear zone '+(z.n-1)+' to light the way'+(ztr2.length?'  ·  TWIST'+(ztr2.length>1?'S':'')+' · '+ztr2.map(k=>ZTRAITS[k].name).join(' · '):''),cx,py2+PLATE_TRAIT_Y-PLATE_Y);
     ctx.shadowBlur=0;
   } else {
     const p=0.28+Math.sin(t*1.8)*0.1;
