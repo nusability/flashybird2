@@ -91,7 +91,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.13.1 zones beta';
+const VERSION='Z0.14.0 zones beta';
 let cv = document.getElementById('c');
 let ctx = cv.getContext('2d');
 
@@ -3147,6 +3147,36 @@ function drawBird(surfing,starred){
   if(starred||surfing){ ctx.shadowColor=mono||(surfing?'#dff2ff':`hsl(${(t*400)%360},100%,60%)`); ctx.shadowBlur=26*SC; }
   drawModel(skin, s, mono, bodyH, bodySat, bodyLum, bird.wing, fx);
   ctx.shadowBlur=0;
+  // harness shells: one bubble for each hit you can still absorb, up to the
+  // three the perk tops out at. The gradient runs the other way to a glow —
+  // empty at the middle, bright at the skin — so they read as shells around
+  // the bird rather than a haze over it, and you can still see yourself fly.
+  // Orange while a per-run charge backs you, gold once you are on crash-pad
+  // stock alone, matching the chip in the corner.
+  const shells=Math.min(3, harnessLeft+(stock.harness|0));
+  if(state==='play' && shells>0){
+    const hh=harnessLeft>0?30:45;
+    const flare=graceT>0?1+graceT*1.6:1;      // one just took a hit
+    ctx.save(); ctx.globalCompositeOperation='lighter';
+    for(let i=0;i<shells;i++){
+      const rr=s*(2.0+i*0.66)*(1+Math.sin(t*2.6+i*1.15)*0.035)*flare;
+      const dim=(0.95-i*0.14)*(surfing||starred?0.5:1);   // inner shell reads strongest
+      // the band is kept narrow on purpose: spread wide it just hazes over a
+      // lit tunnel, where a tight rim still reads as a skin
+      const g=ctx.createRadialGradient(0,0,rr*0.62,0,0,rr*1.06);
+      g.addColorStop(0,`hsla(${hh},100%,70%,0)`);
+      g.addColorStop(0.62,`hsla(${hh},100%,74%,${0.05*dim})`);
+      g.addColorStop(0.88,`hsla(${hh+12},100%,86%,${0.62*dim})`);
+      g.addColorStop(0.95,`hsla(${hh+16},100%,92%,${0.30*dim})`);
+      g.addColorStop(1,`hsla(${hh+20},100%,94%,0)`);
+      ctx.fillStyle=g;
+      ctx.beginPath(); ctx.arc(0,0,rr*1.06,0,TAU); ctx.fill();
+      ctx.strokeStyle=`hsla(${hh+14},100%,90%,${0.5*dim})`;   // the skin itself
+      ctx.lineWidth=Math.max(1,s*0.10);
+      ctx.beginPath(); ctx.arc(0,0,rr,0,TAU); ctx.stroke();
+    }
+    ctx.restore();
+  }
   ctx.restore();
 }
 
@@ -3331,12 +3361,16 @@ function drawHUD(surfing,starred){
     ctx.fillText(s3,x,ly);
     ctx.textBaseline='top';
   }
-  // mult badge
-  if(mult>1){
+  // mult badge — in flight only: on the crash screen the corner belongs to
+  // the NEST button, and a multiplier you can no longer spend is just noise.
+  // The protection chip owns the same corner, so the badge drops below it
+  // rather than printing over it
+  if(mult>1 && state==='play'){
+    const chip = harnessLeft>0 || (stock.harness|0)>0;
     ctx.textAlign='right';
     ctx.font=`900 ${Math.round(26*SC)}px system-ui,sans-serif`;
     ctx.fillStyle=`hsl(320,100%,${60+Math.sin(t*10)*12}%)`;
-    ctx.fillText('×'+mult, W-16*SC, 16*SC+SAFE_T);
+    ctx.fillText('×'+mult, W-16*SC, (chip? 20+44*uiS() : 16*SC)+SAFE_T);
   }
   // level progress lives at the very bottom with the other status bars
   if(state==='play' && levelQ){
