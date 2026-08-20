@@ -91,7 +91,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.15.2 zones beta';
+const VERSION='Z0.15.3 zones beta';
 let cv = document.getElementById('c');
 let ctx = cv.getContext('2d');
 
@@ -2886,15 +2886,10 @@ function drawEnt(e){
     // tunnel itself, shut is its final size. Keyed to depth rather than to
     // the clock — like the gate's spin and the slider's gap — the cosine is
     // at its trough exactly where zz meets the plane, so it bottoms out on
-    // the frame you fly through it whatever your speed. The S-curve on top
-    // of the cosine is what stops it reading as clockwork: it holds near
-    // each end and crosses the middle quickly, so the iris rests open, sweeps
-    // shut, rests shut. EASE alone sets how much hang — 1 leaves the bare
-    // cosine, higher squares it up — and it leaves the period untouched.
-    const EASE=3;
-    let sw=(1-Math.cos((zz-BZ)*e.pf))/2;
-    const sa=Math.pow(sw,EASE), sb=Math.pow(1-sw,EASE);
-    sw=sa/(sa+sb);
+    // the frame you fly through it whatever your speed. The cosine is left
+    // bare: a plain sine swing opens and closes evenly, without the hang at
+    // each end that an S-curve on top of it gave.
+    const sw=(1-Math.cos((zz-BZ)*e.pf))/2;
     const hrRaw=e.hr+(R-e.hr)*sw;
     const th=e.thf + e.spin*(zz-BZ);
     const [hx,hy]=projW(Math.cos(th)*e.d, Math.sin(th)*e.d, zz);
