@@ -91,7 +91,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.16.0 zones beta';
+const VERSION='Z0.16.1 zones beta';
 let cv = document.getElementById('c');
 let ctx = cv.getContext('2d');
 
@@ -872,7 +872,8 @@ let paceBeat=false;
    OUTLIVE a run — bugs, stock, stars, best, challenge progress — have to be
    held aside, since the replay earns them all over again. */
 let runFrame=0, repLog=[], replaying=false, repIdx=0, repTicks=0, repEnd=0, repSnap=null, repPedal=false;
-let repRect=null, doneRepRect=null;
+let repRect=null, doneRepRect=null, repCloseRect=null;
+const repClock=f=>{ const s2=Math.max(0,Math.round(f/120)); return Math.floor(s2/60)+':'+String(s2%60).padStart(2,'0'); };
 const repRec=a=>{ if(!replaying && repLog.length<6000) repLog.push([runFrame,a]); };
 const canReplay=()=> repLog.length>1;
 let newBestShown=false, deadT=0;
@@ -2144,6 +2145,7 @@ function claimChal(){
 function fireBtn(act){
   if(act==='mute'){ muted=!muted; save(); applyMute(); return; }
   if(act==='replay'||act==='drep'){ startReplay(); return; }
+  if(act==='repclose'){ endReplay(); return; }
   if(act==='dnext'||act==='dretry'||act==='dmap'){ doneFire(act); return; }
   if(act==='god'){ if(state==='play') endGodMode(); return; }
   if(act==='zmap'){ exitToMap(); return; }
@@ -2162,7 +2164,16 @@ function fireBtn(act){
 window.addEventListener('pointerdown',e=>{
   pressX=e.clientX; pressY=e.clientY; pressDown=true;
   pendBtn=null;
-  if(replaying){ e.preventDefault(); endReplay(); return; }
+  if(replaying){
+    // a replay is a thing you watch: nothing on screen responds except the
+    // close button, so a stray tap can neither fly the bird nor cut it short
+    e.preventDefault();
+    if(repCloseRect && e.clientX>=repCloseRect[0] && e.clientX<=repCloseRect[0]+repCloseRect[2]
+       && e.clientY>=repCloseRect[1] && e.clientY<=repCloseRect[1]+repCloseRect[3]){
+      initAudio(); pendBtn={act:'repclose', r:repCloseRect};
+    }
+    return;
+  }
   if(state==='map'){ e.preventDefault(); initAudio(); mpDown(e); return; }
   if(state==='done'){ e.preventDefault(); initAudio();
     if(doneT>0.35) pendBtn=doneArm(e.clientX,e.clientY);
@@ -2251,7 +2262,7 @@ window.addEventListener('keyup',e=>{ if(e.key==='Shift') pedalOn=false; });
 // input runs on pointer events so no click handlers are lost.
 window.addEventListener('touchend',e=>{ initAudio(); if(e.cancelable) e.preventDefault(); },{passive:false});
 window.addEventListener('keydown',e=>{
-  if(replaying && !e.repeat){ endReplay(); return; }
+  if(replaying){ if(e.code==='Escape') endReplay(); if(e.code==='Space') e.preventDefault(); return; }
   if(e.key==='Shift' && state==='play' && (tier('pedal')>0||DBG.surfer)){ if(DBG.surfer&&!e.repeat) dbgSurf(); pedalOn=true; return; }
   if(e.repeat) return;
   if(e.code==='Escape' && state==='shop'){ closeShop(); return; }
@@ -3479,17 +3490,44 @@ function drawHUD(surfing,starred){
     ctx.fillStyle=`hsl(320,100%,${60+Math.sin(t*10)*12}%)`;
     ctx.fillText('×'+mult, W-16*SC, (chip? 20+44*uiS() : 16*SC)+SAFE_T);
   }
+  // playback bar: the only thing on screen a tap can reach while watching
   if(replaying){
-    ctx.textAlign='center';
-    ctx.font=`900 ${Math.round(15*SC)}px system-ui,sans-serif`;
-    ctx.fillStyle=`hsl(190,100%,${68+Math.sin(t*5)*10}%)`;
-    ctx.fillText('REPLAY', CX, 150*SC+SAFE_T);
-    ctx.font=`700 ${Math.round(11*SC)}px system-ui,sans-serif`;
-    ctx.fillStyle='rgba(255,255,255,0.55)';
-    ctx.fillText('tap to skip', CX, 168*SC+SAFE_T);
-  }
+    const US=uiS(), bw=Math.min(330*US,W-20), bh=46*US;
+    const bx=CX-bw/2, by=H-bh-10-SAFE_B;
+    ctx.save();
+    ctx.fillStyle='rgba(5,1,15,0.84)';
+    ctx.strokeStyle='hsla(190,100%,66%,0.7)'; ctx.lineWidth=Math.max(1.5,bh*0.045);
+    ctx.beginPath();
+    if(ctx.roundRect) ctx.roundRect(bx,by,bw,bh,bh/2); else ctx.rect(bx,by,bw,bh);
+    ctx.fill(); ctx.stroke();
+    const cs=32*US, ccx=bx+bh/2, ccy=by+bh/2;
+    repCloseRect=[ccx-cs/2,ccy-cs/2,cs,cs];
+    ctx.fillStyle=pressedIn(repCloseRect)?'rgba(255,255,255,0.24)':'rgba(255,255,255,0.10)';
+    ctx.beginPath(); ctx.arc(ccx,ccy,cs/2,0,TAU); ctx.fill();
+    ctx.strokeStyle='#fff'; ctx.lineWidth=Math.max(2,cs*0.09); ctx.lineCap='round';
+    const q=cs*0.21;
+    ctx.beginPath();
+    ctx.moveTo(ccx-q,ccy-q); ctx.lineTo(ccx+q,ccy+q);
+    ctx.moveTo(ccx+q,ccy-q); ctx.lineTo(ccx-q,ccy+q); ctx.stroke();
+    const tx=ccx+cs/2+12*US, tw=Math.max(20,(bx+bw-16*US-58*US)-tx), th=6*US, ty=ccy-th/2;
+    const pr=clamp(runFrame/Math.max(1,repEnd),0,1);
+    ctx.fillStyle='rgba(255,255,255,0.18)';
+    ctx.beginPath(); if(ctx.roundRect) ctx.roundRect(tx,ty,tw,th,th/2); else ctx.rect(tx,ty,tw,th); ctx.fill();
+    ctx.fillStyle='hsl(190,100%,68%)';
+    ctx.beginPath(); if(ctx.roundRect) ctx.roundRect(tx,ty,Math.max(th,tw*pr),th,th/2); else ctx.rect(tx,ty,tw*pr,th); ctx.fill();
+    ctx.beginPath(); ctx.arc(tx+tw*pr,ccy,4.5*US,0,TAU); ctx.fill();
+    ctx.textAlign='right'; ctx.textBaseline='middle';
+    ctx.font=`800 ${Math.round(12*US)}px system-ui,sans-serif`;
+    ctx.fillStyle='rgba(255,255,255,0.8)';
+    ctx.fillText(repClock(runFrame)+' / '+repClock(repEnd), bx+bw-16*US, ccy);
+    ctx.textAlign='center'; ctx.textBaseline='alphabetic';
+    ctx.font=`900 ${Math.round(11*US)}px system-ui,sans-serif`;
+    ctx.fillStyle=`hsl(190,100%,${70+Math.sin(t*4)*8}%)`;
+    ctx.fillText('REPLAY', CX, by-9*US);
+    ctx.restore();
+  } else repCloseRect=null;
   // level progress lives at the very bottom with the other status bars
-  if(state==='play' && levelQ){
+  if(state==='play' && levelQ && !replaying){
     const bw2=190*SC, by2=H-12-SAFE_B;
     ctx.fillStyle='rgba(255,255,255,0.18)'; ctx.fillRect(CX-bw2/2,by2,bw2,6);
     ctx.fillStyle=`hsl(${hue},100%,65%)`; ctx.fillRect(CX-bw2/2,by2,bw2*clamp(dist/levelQ.len,0,1),6);
@@ -3506,7 +3544,7 @@ function drawHUD(surfing,starred){
     }
   }
   // power timers
-  let ty=H-26*SC-SAFE_B-(state==='play'&&levelQ?18:0);
+  let ty=H-26*SC-SAFE_B-(state==='play'&&levelQ&&!replaying?18:0)-(replaying?62*uiS():0);
   const barW=170*SC;
   if(surfing){
     ctx.fillStyle='rgba(200,230,255,0.25)'; ctx.fillRect(CX-barW/2,ty,barW,8*SC);
@@ -4323,16 +4361,21 @@ function drawDead(){
       sy+=rh+14*US;
     } else riseRect=null;
     // segmented tunnel switch: replay today's or roll a surprise
+    // pills are placed by their CENTRE, so the gap under the one above has to
+    // clear both half-heights — the old arithmetic left barely two pixels
+    const RGAP=15*US, RPH=34*US;
     let sy2;
     if(levelQ){
-      mapBackRect=pillBtn(CX, sy+23*US, Math.min(240*US,W-32), 46*US, 'ZONE MAP', 260, false);
-      todayRect=null; randRect=null; sy2=sy+23*US+42*US;
+      const my=sy+23*US, mh=46*US;
+      mapBackRect=pillBtn(CX, my, Math.min(240*US,W-32), mh, 'ZONE MAP', 260, false);
+      todayRect=null; randRect=null; sy2=my+mh/2+RGAP+RPH/2;
     } else {
       segPill(CX, sy+23*US, Math.min(316*US,W-32), 46*US);
-      mapBackRect=pillBtn(CX, sy+23*US+50*US, Math.min(180*US,W-32), 38*US, 'ZONE MAP', 260, false);
-      sy2=sy+23*US+50*US+38*US;
+      const my=sy+23*US+50*US, mh=38*US;
+      mapBackRect=pillBtn(CX, my, Math.min(180*US,W-32), mh, 'ZONE MAP', 260, false);
+      sy2=my+mh/2+RGAP+RPH/2;
     }
-    repRect = canReplay() ? pillBtn(CX, sy2, Math.min(150*US,W-32), 34*US, 'REPLAY', 190, false) : null;
+    repRect = canReplay() ? pillBtn(CX, sy2, Math.min(150*US,W-32), RPH, 'REPLAY', 190, false) : null;
     drawCorners();
     drawGift();
     drawChalBand();
