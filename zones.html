@@ -91,7 +91,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.15.3 zones beta';
+const VERSION='Z0.16.0 zones beta';
 let cv = document.getElementById('c');
 let ctx = cv.getContext('2d');
 
@@ -247,7 +247,7 @@ let stock={}, giftClaimed=false, chalDone=false, chalClaimed=false, chProg=0;
 // challenge collect celebration (gift-style bug fountain, no box)
 let chalAnim=-1, chalFly=[], chalCount=0, chalPopT=0, chalPos=[0,0], chalRect=null;
 let runMaxCombo=0, runMaxStreak=0, runMaxSurf=0, runSpiral=false;
-function saveChp(){ try{ localStorage.setItem('fb_chp', JSON.stringify({d:TODAY,p:chProg})); }catch(e){} }
+function saveChp(){ if(replaying) return; try{ localStorage.setItem('fb_chp', JSON.stringify({d:TODAY,p:chProg})); }catch(e){} }
 // crash-screen gift box: -1 idle, >=0 animating (claim happens at tap)
 let giftAnim=-1, giftFly=[], giftLid=null, giftCount=0, giftPopT=0, giftRect=null;
 // onboarding: has this device ever flown, and has swipe-to-swoop been used?
@@ -272,7 +272,7 @@ try{
   seenPlay = g('fb_seen')==='1';
   diveUses = +g('fb_dives')||0;
 }catch(e){}
-function save(){ try{
+function save(){ if(replaying) return; try{
   localStorage.setItem('fb_best', best);
   localStorage.setItem('fb_mute', muted?'1':'0');
   localStorage.setItem('fb_bugs', bugs);
@@ -862,6 +862,19 @@ let shopFrom='title', shopRects=[], nestRect=null;
 let crashY=0, crashSwoop=false; // was the fatal hit one a swoop would have dodged?
 /* per-tunnel PB: shown on the title screen, celebrated when beaten */
 let paceBeat=false;
+/* ---------- replay ----------
+   A run is reproducible: updates run on a fixed step, reset() rewinds the
+   world stream, and the simulation draws no Math.random — only the two
+   seeded streams. So a replay needs nothing but the frame numbers your
+   inputs landed on: a few dozen numbers, not video. Playing it back re-runs
+   the same run and ends in the same death or the same finish, which is what
+   puts the crash or clear screen back underneath it. Only the things that
+   OUTLIVE a run — bugs, stock, stars, best, challenge progress — have to be
+   held aside, since the replay earns them all over again. */
+let runFrame=0, repLog=[], replaying=false, repIdx=0, repTicks=0, repEnd=0, repSnap=null, repPedal=false;
+let repRect=null, doneRepRect=null;
+const repRec=a=>{ if(!replaying && repLog.length<6000) repLog.push([runFrame,a]); };
+const canReplay=()=> repLog.length>1;
 let newBestShown=false, deadT=0;
 let hue=seedHue(), rot=0, twist=0;
 let shake=0, shX=0, shY=0, flashA=0, flashHue=0, slow=0;
@@ -1063,6 +1076,7 @@ function reset(){
   worldRng=mulberry32(hashStr(seedStr));
   lastSpawnAt={};
   paceBeat=false;
+  runFrame=0; repPedal=false; if(!replaying) repLog=[];
   runBugs=0; runBugStreak=0; runGates=0;
   runMaxCombo=0; runMaxStreak=0; runMaxSurf=0; runSpiral=false;
   chalAnim=-1; chalFly=[]; chalRect=null;
@@ -1070,7 +1084,7 @@ function reset(){
   for(let z=650; z<FAR; z+=wrand(300,420)){ spawn(z); spawnHead=z; }
   // very first flight on this device: show the primer cards once
   hintT = seenPlay ? 0 : 8;
-  if(!seenPlay){ seenPlay=true; try{ localStorage.setItem('fb_seen','1'); }catch(e){} }
+  if(!seenPlay && !replaying){ seenPlay=true; try{ localStorage.setItem('fb_seen','1'); }catch(e){} }
   state='play'; noteI=0; if(ac) nextNote=ac.currentTime+0.05;
 }
 // one protection pool for every death source: per-run harness charges
@@ -1123,6 +1137,7 @@ function die(dsave){
 }
 const canRise=()=> phoenixLeft>0 || (stock.egg|0)>0;
 function revive(label){
+  repRec('r');
   state='play'; deadT=0; riseRect=null;
   slow=0; starT=1.3; starMax=1.3; diveTo=null;
   bird.vy=FLAP*0.5*(zTrait('topsy')?-1:1); bird.wing=1;
@@ -1133,6 +1148,7 @@ function revive(label){
   if(ac) nextNote=ac.currentTime+0.05;
 }
 function flap(){
+  repRec('f');
   bird.vy = FLAP*(zTrait('topsy')?-1:1); bird.wing = 1; diveTo=null;
   sfx.flap();
   const [bx,by]=proj(0,bird.y,BZ);
@@ -1147,7 +1163,8 @@ function flap(){
 const diveDir=()=> zTrait('topsy')? -1 : 1;
 function dive(){
   if(state!=='play') return;
-  if(diveUses<3){ diveUses++; try{ localStorage.setItem('fb_dives',diveUses); }catch(e){} }
+  repRec('d');
+  if(diveUses<3 && !replaying){ diveUses++; try{ localStorage.setItem('fb_dives',diveUses); }catch(e){} }
   const yMax=R-BIRD_R-2, dv=diveDir(), y=bird.y*dv;   // measure in swoop-space
   diveTo = (y > yMax*0.4 ? yMax+BIRD_R : Math.min(yMax*0.6, y+yMax))*dv;
   bird.wing=0;
@@ -1303,7 +1320,7 @@ function drawBlackout(){
 /* progress: current zone, next level, star bits for the visible window */
 let ZP={cur:1,lvl:1,stars:{},total:0};
 try{ const z=JSON.parse(localStorage.getItem('fb_zp')||'null'); if(z&&z.cur) ZP=z; }catch(e){}
-function saveZP(){
+function saveZP(){ if(replaying) return;
   // full history is kept — the map scrolls back to zone 1 for star runs
   try{ localStorage.setItem('fb_zp',JSON.stringify(ZP)); }catch(e){}
 }
@@ -1449,12 +1466,14 @@ function drawDone(){
     doneRetryRect=pillBtn(CX-bw3/4-4, CY+64*SC+56*uiS(), bw3/2-8, 40*uiS(),
       lvlStars<3?'RETRY ★':'RETRY', 48, false);
     doneMapRect=pillBtn(CX+bw3/4+4, CY+64*SC+56*uiS(), bw3/2-8, 40*uiS(), 'ZONE MAP', 260, false);
-  } else { doneNextRect=null; doneMapRect=null; doneRetryRect=null; }
+    doneRepRect = canReplay() ? pillBtn(CX, CY+64*SC+104*uiS(), Math.min(150*uiS(),W-32), 34*uiS(), 'REPLAY', 190, false) : null;
+  } else { doneNextRect=null; doneMapRect=null; doneRetryRect=null; doneRepRect=null; }
 }
 // the level-clear buttons arm on pointerdown and fire on pointerup, so the
 // pill actually shows its pressed state (and a slide-off cancels)
 function doneArm(x,y){
   const inR=r=> r&&x>=r[0]&&x<=r[0]+r[2]&&y>=r[1]&&y<=r[1]+r[3];
+  if(inR(doneRepRect))   return {act:'drep',   r:doneRepRect};
   if(inR(doneRetryRect)) return {act:'dretry', r:doneRetryRect};
   if(inR(doneMapRect))   return {act:'dmap',   r:doneMapRect};
   if(inR(doneNextRect))  return {act:'dnext',  r:doneNextRect};
@@ -1488,6 +1507,30 @@ const mpAlongPx=()=> mpLand()? W : H;             // screen px along the run
 /* scale: fit the strip's 390 across, never magnifying past the size the map
    has on the widest phone held upright, so elements keep their portrait size
    in both orientations and only the run length on screen changes. */
+function startReplay(){
+  if(replaying || !canReplay()) return;
+  // everything a run can spend or earn, held aside for the duration
+  const cp=v=>v==null?v:JSON.parse(JSON.stringify(v));
+  repSnap={ back:state, bugs, best, chProg, chalDone, chalClaimed, giftClaimed, diveUses, paceBeat, seenPlay,
+    stock:cp(stock), ZP:cp(ZP), pace:cp(pace),
+    score, dist, crashY, crashSwoop, lvlStars, deadT, doneT, levelQ:cp(levelQ), lvlStat:cp(lvlStat) };
+  replaying=true; repIdx=0; repTicks=0;
+  repEnd=repLog[repLog.length-1][0];
+  initAudio();
+  reset(); hintT=0;
+}
+function endReplay(){
+  if(!replaying) return;
+  const s2=repSnap; replaying=false; repSnap=null;
+  bugs=s2.bugs; best=s2.best; chProg=s2.chProg; chalDone=s2.chalDone; chalClaimed=s2.chalClaimed;
+  giftClaimed=s2.giftClaimed; diveUses=s2.diveUses; paceBeat=s2.paceBeat; seenPlay=s2.seenPlay;
+  stock=s2.stock; ZP=s2.ZP; pace=s2.pace;
+  // the run values come back too, so a replay that somehow drifted still
+  // leaves the screen showing what actually happened
+  score=s2.score; dist=s2.dist; crashY=s2.crashY; crashSwoop=s2.crashSwoop; lvlStars=s2.lvlStars;
+  levelQ=s2.levelQ; lvlStat=s2.lvlStat;
+  state=s2.back; deadT=s2.deadT; doneT=s2.doneT; hintT=0;
+}
 function mpS0(){ return Math.min(mpCrossPx()/G.UNIT_W, 1.1); }
 function mpOff(){ return (mpCrossPx()-G.UNIT_W*mpS0())/2; }   // screen px, across
 function mpPad(){ return mpOff()/mpS0(); }                    // cell units per side
@@ -2100,6 +2143,7 @@ function claimChal(){
 }
 function fireBtn(act){
   if(act==='mute'){ muted=!muted; save(); applyMute(); return; }
+  if(act==='replay'||act==='drep'){ startReplay(); return; }
   if(act==='dnext'||act==='dretry'||act==='dmap'){ doneFire(act); return; }
   if(act==='god'){ if(state==='play') endGodMode(); return; }
   if(act==='zmap'){ exitToMap(); return; }
@@ -2118,6 +2162,7 @@ function fireBtn(act){
 window.addEventListener('pointerdown',e=>{
   pressX=e.clientX; pressY=e.clientY; pressDown=true;
   pendBtn=null;
+  if(replaying){ e.preventDefault(); endReplay(); return; }
   if(state==='map'){ e.preventDefault(); initAudio(); mpDown(e); return; }
   if(state==='done'){ e.preventDefault(); initAudio();
     if(doneT>0.35) pendBtn=doneArm(e.clientX,e.clientY);
@@ -2145,6 +2190,7 @@ window.addEventListener('pointerdown',e=>{
     if(inR(todayRect)) return arm('today',todayRect);
     if(inR(randRect))  return arm('rand',randRect);
     if(state==='dead' && inR(riseRect)) return arm('rise',riseRect);
+    if(inR(repRect)) return arm('replay',repRect);
     if(inR(shareRect)) return arm('share',shareRect);
     if(!giftClaimed && giftAnim<0 && inR(giftRect)) return arm('gift',giftRect);
     if(chalDone && !chalClaimed && inR(chalRect)) return arm('chal',chalRect);
@@ -2205,6 +2251,7 @@ window.addEventListener('keyup',e=>{ if(e.key==='Shift') pedalOn=false; });
 // input runs on pointer events so no click handlers are lost.
 window.addEventListener('touchend',e=>{ initAudio(); if(e.cancelable) e.preventDefault(); },{passive:false});
 window.addEventListener('keydown',e=>{
+  if(replaying && !e.repeat){ endReplay(); return; }
   if(e.key==='Shift' && state==='play' && (tier('pedal')>0||DBG.surfer)){ if(DBG.surfer&&!e.repeat) dbgSurf(); pedalOn=true; return; }
   if(e.repeat) return;
   if(e.code==='Escape' && state==='shop'){ closeShop(); return; }
@@ -2225,6 +2272,23 @@ function update(dt){
     else pedalT=Math.min(pedalMax(), pedalT+pedalRegen()*dt);
     if(pedalLock && !pedalOn && pedalT>=0.5) pedalLock=false;
   }
+  if(replaying){
+    // runFrame is the clock for both halves: it only ticks in flight, so a
+    // RISE AGAIN recorded on the frame you died replays on that same frame
+    while(repIdx<repLog.length && repLog[repIdx][0]<=runFrame){
+      const a=repLog[repIdx++][1];
+      if(a==='f') flap();
+      else if(a==='d') dive();
+      else if(a==='r'){ if(phoenixLeft>0) phoenixLeft--; else if((stock.egg|0)>0) stock.egg--; revive('AGAIN!'); }
+      else pedalOn = a==='p1';
+    }
+    repTicks++;
+    // done when the log has run dry and the run has ended, and bailed out if
+    // it somehow never does
+    if(repIdx>=repLog.length && ((state==='dead'&&deadT>0.7)||(state==='done'&&doneT>0.7))) endReplay();
+    else if(repTicks>repEnd+3600) endReplay();
+  } else if(state==='play' && pedalOn!==repPedal){ repPedal=pedalOn; repRec(pedalOn?'p1':'p0'); }
+  if(state==='play') runFrame++;
   const ts = (slow>0 ? 0.25 : 1)*(pedalActive?0.5:1);
   slow = Math.max(0, slow-dt);
   viewT = Math.max(0, viewT-dt);   // real-time duration
@@ -3415,6 +3479,15 @@ function drawHUD(surfing,starred){
     ctx.fillStyle=`hsl(320,100%,${60+Math.sin(t*10)*12}%)`;
     ctx.fillText('×'+mult, W-16*SC, (chip? 20+44*uiS() : 16*SC)+SAFE_T);
   }
+  if(replaying){
+    ctx.textAlign='center';
+    ctx.font=`900 ${Math.round(15*SC)}px system-ui,sans-serif`;
+    ctx.fillStyle=`hsl(190,100%,${68+Math.sin(t*5)*10}%)`;
+    ctx.fillText('REPLAY', CX, 150*SC+SAFE_T);
+    ctx.font=`700 ${Math.round(11*SC)}px system-ui,sans-serif`;
+    ctx.fillStyle='rgba(255,255,255,0.55)';
+    ctx.fillText('tap to skip', CX, 168*SC+SAFE_T);
+  }
   // level progress lives at the very bottom with the other status bars
   if(state==='play' && levelQ){
     const bw2=190*SC, by2=H-12-SAFE_B;
@@ -4250,19 +4323,22 @@ function drawDead(){
       sy+=rh+14*US;
     } else riseRect=null;
     // segmented tunnel switch: replay today's or roll a surprise
+    let sy2;
     if(levelQ){
       mapBackRect=pillBtn(CX, sy+23*US, Math.min(240*US,W-32), 46*US, 'ZONE MAP', 260, false);
-      todayRect=null; randRect=null;
+      todayRect=null; randRect=null; sy2=sy+23*US+42*US;
     } else {
       segPill(CX, sy+23*US, Math.min(316*US,W-32), 46*US);
       mapBackRect=pillBtn(CX, sy+23*US+50*US, Math.min(180*US,W-32), 38*US, 'ZONE MAP', 260, false);
+      sy2=sy+23*US+50*US+38*US;
     }
+    repRect = canReplay() ? pillBtn(CX, sy2, Math.min(150*US,W-32), 34*US, 'REPLAY', 190, false) : null;
     drawCorners();
     drawGift();
     drawChalBand();
     pressGlow(giftRect,14);
     pressGlow(chalRect,0);
-  } else { shareRect=null; nestRect=null; giftRect=null; riseRect=null; chalRect=null; todayRect=null; randRect=null; }
+  } else { shareRect=null; nestRect=null; giftRect=null; riseRect=null; chalRect=null; todayRect=null; randRect=null; repRect=null; }
 }
 
 // the daily gift as a real present on the crash screen: bobbing wrapped
