@@ -94,7 +94,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.16.2 zones beta';
+const VERSION='Z0.16.3 zones beta';
 let cv = document.getElementById('c');
 let ctx = cv.getContext('2d');
 
@@ -358,6 +358,10 @@ try{
     }
   }
 }catch(e){}
+// ...and remembered, because a home-screen app is launched from its start_url
+// and never sees a query string again — which is exactly where the readout is
+// needed. 7 taps on HYPER RIDE in the nest flips it.
+try{ if(localStorage.getItem('fb_dbgvp')==='1') DBG.vp=true; }catch(e){}
 /* daily gift (3-10 bugs) and daily challenge (3-20 bugs) — same for
    everyone worldwide, derived from the UTC date */
 let GIFT_AMT=3+hashStr(TODAY+'gift')%8;
@@ -4265,6 +4269,15 @@ function shopTap(x,y){
       return;
     }
     if(s2.a==='track'){
+      // no reload for this one: the readout is pure overlay, and a reload is
+      // what loses it in a standalone app
+      if(s2.id==='hyper' && streakN>=7){
+        streakN=0;
+        DBG.vp=!DBG.vp;
+        try{ localStorage.setItem('fb_dbgvp', DBG.vp?'1':'0'); }catch(e){}
+        sfx.power(); shopSay('VIEWPORT READOUT '+(DBG.vp?'ON':'OFF'));
+        return;
+      }
       if(s2.id==='wacky' && streakN>=7){
         streakN=0;
         if(confirm('DEBUG · off\nswitch OFF all debug modes (invincibility, stacking surf) and reload?')){
@@ -4272,6 +4285,7 @@ function shopTap(x,y){
             const u=new URL(location.href);
             u.searchParams.delete('debug');
             u.searchParams.delete('reload');
+            DBG.vp=false; localStorage.removeItem('fb_dbgvp');
             location.replace(u.href);
           }catch(e){ location.reload(); }
         }
