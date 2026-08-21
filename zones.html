@@ -28,7 +28,10 @@
   /* safe-area insets surfaced as custom props so canvas JS can read them */
   :root{--sat:env(safe-area-inset-top,0px);--sab:env(safe-area-inset-bottom,0px)}
   html,body{margin:0;padding:0;background:#05010f;overflow:hidden;height:100%;touch-action:none;-webkit-user-select:none;user-select:none;overscroll-behavior:none}
-  canvas{display:block;position:fixed;inset:0;cursor:pointer;touch-action:none}
+  /* the canvas stretches to the viewport box itself. It used to be given an
+     explicit pixel size from a measurement, which turns any under-measurement
+     into a real gap — the iOS standalone bottom inset being exactly that. */
+  canvas{display:block;position:fixed;inset:0;width:100%;height:100%;cursor:pointer;touch-action:none}
   /* invisible fixed-position yardstick: its laid-out box IS the true
      paintable area (bottom inset included), which iOS's innerHeight and
      visualViewport under-report in standalone full-bleed mode */
@@ -91,7 +94,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.16.1 zones beta';
+const VERSION='Z0.16.2 zones beta';
 let cv = document.getElementById('c');
 let ctx = cv.getContext('2d');
 
@@ -103,6 +106,12 @@ let W=0,H=0,CX=0,CY=0,DPR=1,SC=1,Fp=560,SAFE_T=0,SAFE_B=0;
 // laid-out box always spans the real screen. visualViewport is only the
 // fallback for the first frames before layout.
 function vpSize(){
+  // measure the CANVAS, since it is the thing that has to be covered: it is
+  // stretched to the viewport box by CSS, so its laid-out size is the size
+  // the backing store needs, and the two can never disagree. #vp stays as
+  // the fallback for the first frames and for a canvas not yet laid out.
+  const c=(cv&&cv.getBoundingClientRect)?cv.getBoundingClientRect():null;
+  if(c && c.width>10 && c.height>10) return [Math.round(c.width),Math.round(c.height)];
   const r=document.getElementById('vp').getBoundingClientRect();
   if(r.width>10 && r.height>10) return [Math.round(r.width),Math.round(r.height)];
   const vv=window.visualViewport;
@@ -122,8 +131,7 @@ function resize(){
     SAFE_T=parseFloat(cs.getPropertyValue('--sat'))||0;
     SAFE_B=parseFloat(cs.getPropertyValue('--sab'))||0;
   }catch(e){ SAFE_T=0; SAFE_B=0; }
-  cv.width = W*DPR; cv.height = H*DPR;
-  cv.style.width = W+'px'; cv.style.height = H+'px';
+  cv.width = W*DPR; cv.height = H*DPR;   // backing store only — CSS owns the box
   ctx.setTransform(DPR,0,0,DPR,0,0);
   CX = W/2; CY = H/2;
   SC = Math.min(W,H)/720;
@@ -316,7 +324,7 @@ const SUPPLIES=[
    comma-combinable. The persistent ones (reset/max/showmethemoney) apply and
    redirect to a clean URL — unless a runtime flag rides along, which must
    stay in the URL to keep working. ---------- */
-const DBG={power:false, surfer:false};
+const DBG={power:false, surfer:false, vp:false};
 try{
   const q=(new URLSearchParams(location.search).get('debug')||'').toLowerCase();
   if(q){
@@ -336,14 +344,15 @@ try{
     if(f.includes('showmethemoney')){ bugs+=1000; save(); persisted=true; }
     DBG.power=f.includes('poweroverwhelming');
     DBG.surfer=f.includes('silversurfer');
+    DBG.vp=f.includes('vp');            // geometry readout, for chasing insets
     if(persisted){
-      if(!DBG.power && !DBG.surfer) location.replace(location.pathname);
+      if(!DBG.power && !DBG.surfer && !DBG.vp) location.replace(location.pathname);
       else {
         // runtime flags must stay in the URL to keep working, but the
         // persistent ones just applied must NOT re-apply on every reload —
         // rewrite the query to carry only the runtime flags
         const u=new URL(location.href);
-        u.searchParams.set('debug', f.filter(x=>x==='poweroverwhelming'||x==='silversurfer').join(','));
+        u.searchParams.set('debug', f.filter(x=>x==='poweroverwhelming'||x==='silversurfer'||x==='vp').join(','));
         history.replaceState(null,'',u.href);
       }
     }
@@ -2863,6 +2872,7 @@ function render(){
   if(state==='map') mpDraw();
   if(state==='done') drawDone();
   if(spinning) ctx.restore();
+  if(DBG.vp) drawVP();
 }
 
 function drawRing(z){
@@ -3440,6 +3450,38 @@ function drawTruck(s, mono, wing, fx){
   ctx.restore();
 }
 
+/* ?debug=vp — what every source thinks the screen is. Insets only exist on
+   real hardware, so when a phone disagrees with the layout this is the thing
+   to read out loud rather than guess at. */
+function drawVP(){
+  const vv=window.visualViewport, de=document.documentElement;
+  const cr=cv.getBoundingClientRect(), vr=document.getElementById('vp').getBoundingClientRect();
+  const sa=n=>{ try{ return getComputedStyle(de).getPropertyValue(n).trim()||'0px'; }catch(e){ return '?'; } };
+  const rows=[
+    'canvas box  '+Math.round(cr.width)+' x '+Math.round(cr.height)+'  @'+Math.round(cr.top),
+    'store       '+cv.width+' x '+cv.height+'  dpr '+(window.devicePixelRatio||1).toFixed(2),
+    '#vp box     '+Math.round(vr.width)+' x '+Math.round(vr.height),
+    'inner       '+window.innerWidth+' x '+window.innerHeight,
+    'client      '+de.clientWidth+' x '+de.clientHeight,
+    'visualVP    '+(vv?Math.round(vv.width)+' x '+Math.round(vv.height)+' off'+Math.round(vv.offsetTop):'-'),
+    'screen      '+screen.width+' x '+screen.height,
+    'safe        top '+sa('--sat')+'  bottom '+sa('--sab'),
+    'standalone  '+(navigator.standalone===true)+'  dm '+(matchMedia('(display-mode: standalone)').matches),
+    'W x H       '+W+' x '+H+'   SAFE '+SAFE_T+'/'+SAFE_B,
+  ];
+  ctx.save();
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.font='600 11px ui-monospace,Menlo,monospace';
+  ctx.textAlign='left'; ctx.textBaseline='top';
+  const wid=Math.max(...rows.map(r=>ctx.measureText(r).width))+16;
+  ctx.fillStyle='rgba(0,0,0,0.72)'; ctx.fillRect(6,6+SAFE_T,wid,rows.length*14+12);
+  ctx.fillStyle='#7CFC9A';
+  rows.forEach((r,i)=>ctx.fillText(r,14,12+SAFE_T+i*14));
+  // hairlines on the true edges of the canvas box: any gap shows up here
+  ctx.strokeStyle='#ff2d7a'; ctx.lineWidth=2;
+  ctx.strokeRect(1,1,W-2,H-2);
+  ctx.restore();
+}
 function drawHUD(surfing,starred){
   ctx.textAlign='center'; ctx.textBaseline='top';
   // score
