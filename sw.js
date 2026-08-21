@@ -1,16 +1,17 @@
 /* Flashy Bird Zones — offline service worker.
    Network-first: online always serves the freshest deploy, offline falls
    back to the last cached copy. */
-const CACHE='flashybird-zones-v3';
+const CACHE='flashybird-zones-v4';
 const CORE=[
-  // zones.html is the stub older home-screen installs still launch at, and
-  // classic.html is the pre-zones game kept at a live URL
-  './','index.html','zones.html','classic.html','theme-lab.html',
+  // beta.html is where development happens, zones.html the stub older
+  // home-screen installs still launch at, classic.html the pre-zones game
+  './','index.html','beta.html','zones.html','classic.html','theme-lab.html',
   'themes/sky.js','themes/jungle.js','themes/candy-glacier.js',
   'themes/clockwork-aviary.js','themes/space-koi.js','themes/volcano-hatchery.js',
   'themes/mushroom-metropolis.js','themes/disco-hive.js','themes/origami-canyon.js',
   'themes/midnight-carnival.js','themes/sunken-library.js','themes/thunder-meadow.js',
   'icon-180.png','icon-512.png','manifest.webmanifest',
+  'icon-beta-180.png','icon-beta-512.png','manifest-beta.webmanifest',
 ];
 self.addEventListener('install',e=>{
   e.waitUntil(caches.open(CACHE).then(c=>c.addAll(CORE)).then(()=>self.skipWaiting()));

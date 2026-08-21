@@ -17,3 +17,18 @@ Zero dependencies. The game is [`index.html`](index.html) plus the theme packs i
 [`themes/`](themes); [`classic.html`](classic.html) is the original single-tunnel game, kept as
 it was, and `zones.html` is a redirect for home-screen apps installed before the game moved to
 the root.
+
+## Working on it
+
+`beta.html` is the copy under development — same game, its own title, its own manifest and its
+own BETA icon, so it installs to the home screen side by side with the release and you can
+always tell which one you are looking at. Both read the same saved progress, since the browser
+keys storage by origin.
+
+Develop in `beta.html`, try it at `/beta.html`, and when it is ready:
+
+    ./promote.sh Z0.18.0
+
+which copies it over `index.html`, puts the release title, icon and manifest back, and leaves
+the beta running one label ahead. Bump `CACHE` in [`sw.js`](sw.js) whenever a precached file
+changes, so the worker drops the previous generation.

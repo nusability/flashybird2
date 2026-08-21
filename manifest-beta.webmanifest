@@ -1,0 +1,14 @@
+{
+  "name": "Flashy Bird Zones (beta)",
+  "short_name": "Flashy Beta",
+  "start_url": "beta.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#05010f",
+  "theme_color": "#05010f",
+  "icons": [
+    { "src": "icon-beta-180.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "icon-beta-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
