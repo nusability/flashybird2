@@ -94,7 +94,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.16.4 zones beta';
+const VERSION='Z0.16.5 zones beta';
 let cv = document.getElementById('c');
 let ctx = cv.getContext('2d');
 
@@ -148,12 +148,27 @@ function resize(){
     SAFE_T=parseFloat(cs.getPropertyValue('--sat'))||0;
     SAFE_B=parseFloat(cs.getPropertyValue('--sab'))||0;
   }catch(e){ SAFE_T=0; SAFE_B=0; }
+  // and the boosted strip is treated as unsafe for UI whether or not it ends
+  // up painting: the world and the background fill it, but nothing anchored
+  // to the bottom is allowed down there, so no button can be cut off again
+  SAFE_B += vpBoost;
   cv.width = W*DPR; cv.height = H*DPR;
-  // normally CSS owns the box and the element just stretches. When the
-  // viewport is short of the display, stretching can only ever reach 812 —
-  // the element has to be told to be taller than the viewport it sits in.
-  if(vpBoost){ cv.style.width=W+'px'; cv.style.height=H+'px'; }
-  else { cv.style.width=''; cv.style.height=''; }
+  /* A FIXED element is clipped to the layout viewport, so simply making the
+     canvas taller painted nothing into the strip and pushed the UI into the
+     clipped part — cut off. Content in the DOCUMENT is not clipped that way,
+     so when the boost is on the canvas goes absolute and the document is
+     grown to match, which is the only route to pixels down there. */
+  if(vpBoost){
+    cv.style.position='absolute'; cv.style.top='0'; cv.style.left='0';
+    cv.style.width=W+'px'; cv.style.height=H+'px';
+    document.documentElement.style.height=H+'px';
+    document.body.style.height=H+'px';
+  } else {
+    cv.style.position=''; cv.style.top=''; cv.style.left='';
+    cv.style.width=''; cv.style.height='';
+    document.documentElement.style.height='';
+    document.body.style.height='';
+  }
   ctx.setTransform(DPR,0,0,DPR,0,0);
   CX = W/2; CY = H/2;
   SC = Math.min(W,H)/720;
@@ -3507,6 +3522,15 @@ function drawVP(){
   // hairlines on the true edges of the canvas box: any gap shows up here
   ctx.strokeStyle='#ff2d7a'; ctx.lineWidth=2;
   ctx.strokeRect(1,1,W-2,H-2);
+  // and the boosted strip in a colour nothing else uses: if this band is on
+  // screen the strip paints, if it is not the viewport really does end early
+  if(vpBoost){
+    ctx.fillStyle='#00ff9c';
+    ctx.fillRect(0,H-vpBoost,W,vpBoost);
+    ctx.fillStyle='#003b24'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.font='700 12px ui-monospace,Menlo,monospace';
+    ctx.fillText('BOOSTED STRIP — '+vpBoost+'px', W/2, H-vpBoost/2);
+  }
   ctx.restore();
 }
 function drawHUD(surfing,starred){
