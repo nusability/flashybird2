@@ -94,7 +94,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.16.6 zones beta';
+const VERSION='Z0.16.7 zones beta';
 let cv = document.getElementById('c');
 let ctx = cv.getContext('2d');
 
@@ -125,16 +125,20 @@ function vpSize(){
      Correct it only when those three numbers add up exactly, on a standalone
      launch, in the orientation screen reports — a browser tab is short for a
      different reason (chrome), and must not be stretched under it. */
-  vpBoost=0;
+  let boost=0;
   try{
     const sat=parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sat'))||0;
     const st=(navigator.standalone===true)||matchMedia('(display-mode: standalone)').matches;
     if(st && sat>0 && screen && screen.height &&
        Math.abs(w-screen.width)<2 && Math.abs(h+sat-screen.height)<2){
-      vpBoost=Math.round(screen.height-h); h=screen.height;
+      boost=Math.round(screen.height-h); h=screen.height;
     }
   }catch(e){}
-  return [Math.round(w),Math.round(h)];
+  // the boost is REPORTED, never assigned here: this runs from the watchdog
+  // too, and a global quietly changing under a check that then decides not to
+  // resize is exactly how the canvas ended up drawing 874 rows into an 812px
+  // box — every pixel squashed, and nothing able to notice
+  return [Math.round(w),Math.round(h),boost];
 }
 /* Pointer events arrive in layout-viewport coordinates, but with the boost on
    the canvas lives in the DOCUMENT rather than pinned to that viewport — and a
@@ -178,7 +182,8 @@ function resize(){
   // render at native density (3x on modern phones) so text and thin
   // strokes stay crisp; cap at 3 to bound fill cost on zoomed desktops
   DPR = Math.min(window.devicePixelRatio||1, 3);
-  [W,H] = vpSize();
+  const vs=vpSize();
+  W=vs[0]; H=vs[1]; vpBoost=vs[2];
   // black-translucent standalone runs edge-to-edge under the status bar and
   // home indicator; UI anchored to the top/bottom edges ducks the insets
   try{
@@ -186,10 +191,12 @@ function resize(){
     SAFE_T=parseFloat(cs.getPropertyValue('--sat'))||0;
     SAFE_B=parseFloat(cs.getPropertyValue('--sab'))||0;
   }catch(e){ SAFE_T=0; SAFE_B=0; }
-  // and the boosted strip is treated as unsafe for UI whether or not it ends
-  // up painting: the world and the background fill it, but nothing anchored
-  // to the bottom is allowed down there, so no button can be cut off again
-  SAFE_B += vpBoost;
+  /* --sab is the home indicator's inset from the PHYSICAL bottom of the
+     display — the same frame --sat is measured in, which the top edge already
+     lines up against correctly. With the strip painting, H is that physical
+     bottom, so the inset applies as-is; adding the boost on top of it parked
+     the bottom row of UI a whole status bar above where it belongs, which is
+     the gap that read as an ugly safe area. */
   cv.width = W*DPR; cv.height = H*DPR;
   /* A FIXED element is clipped to the layout viewport, so simply making the
      canvas taller painted nothing into the strip and pushed the UI into the
@@ -221,7 +228,13 @@ window.addEventListener('resize', resize); resize();
 // short poll after launch; only re-run resize() on a real mismatch.
 function resMatch(){
   const dpr=Math.min(window.devicePixelRatio||1,3), s=vpSize();
-  return Math.abs(cv.width-s[0]*dpr)<2 && Math.abs(cv.height-s[1]*dpr)<2;
+  if(Math.abs(cv.width-s[0]*dpr)>=2 || Math.abs(cv.height-s[1]*dpr)>=2) return false;
+  if(s[2]!==vpBoost) return false;          // the boost decision itself changed
+  // and the element has to actually BE that size: a backing store that matches
+  // while the box does not is the squash, and it is invisible to a store-only
+  // check because rebuilding the store repairs nothing
+  const r=cv.getBoundingClientRect();
+  return Math.abs(r.width-s[0])<2 && Math.abs(r.height-s[1])<2;
 }
 function ensureRes(){ if(!resMatch()) resize(); }
 // The compositor assigns a layer its raster scale when the LAYER is born.
@@ -254,8 +267,12 @@ document.addEventListener('visibilitychange',()=>{ if(!document.hidden){ unscrol
 window.addEventListener('scroll',unscroll,{passive:true});
 window.addEventListener('orientationchange',()=>setTimeout(ensureRes,80));
 if(window.visualViewport) window.visualViewport.addEventListener('resize',ensureRes);
+/* the launch poll used to stop after six seconds, which left the game with no
+   way back from a geometry that went wrong later — so it keeps ticking, just
+   slowly once the launch has settled: one box measurement a second is nothing
+   next to spending the rest of the session squashed */
 let resGuardN=24;
-(function resGuard(){ ensureRes(); if(resGuardN-->0) setTimeout(resGuard,250); })();
+(function resGuard(){ ensureRes(); setTimeout(resGuard, resGuardN-->0 ? 250 : 1000); })();
 /* iOS hands out the geometry late — the safe-area env() vars read 0 and the
    window metrics are stale until layout settles a frame or three in — and a
    250ms watchdog only catches up after the game has already painted a few
