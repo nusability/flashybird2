@@ -94,7 +94,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.16.3 zones beta';
+const VERSION='Z0.16.4 zones beta';
 let cv = document.getElementById('c');
 let ctx = cv.getContext('2d');
 
@@ -105,18 +105,35 @@ let W=0,H=0,CX=0,CY=0,DPR=1,SC=1,Fp=560,SAFE_T=0,SAFE_B=0;
 // band even when the view runs edge-to-edge), while a fixed element's
 // laid-out box always spans the real screen. visualViewport is only the
 // fallback for the first frames before layout.
+let vpBoost=0;     // px the layout viewport is short of the real display
 function vpSize(){
-  // measure the CANVAS, since it is the thing that has to be covered: it is
-  // stretched to the viewport box by CSS, so its laid-out size is the size
-  // the backing store needs, and the two can never disagree. #vp stays as
-  // the fallback for the first frames and for a canvas not yet laid out.
-  const c=(cv&&cv.getBoundingClientRect)?cv.getBoundingClientRect():null;
-  if(c && c.width>10 && c.height>10) return [Math.round(c.width),Math.round(c.height)];
+  // #vp is the yardstick: a fixed inset:0 box, never restyled by us, so it
+  // always reports the layout viewport itself
   const r=document.getElementById('vp').getBoundingClientRect();
-  if(r.width>10 && r.height>10) return [Math.round(r.width),Math.round(r.height)];
-  const vv=window.visualViewport;
-  const w = (vv&&vv.width)  ? vv.width  : (document.documentElement.clientWidth ||window.innerWidth);
-  const h = (vv&&vv.height) ? vv.height : (document.documentElement.clientHeight||window.innerHeight);
+  let w,h;
+  if(r.width>10 && r.height>10){ w=r.width; h=r.height; }
+  else {
+    const vv=window.visualViewport;
+    w = (vv&&vv.width)  ? vv.width  : (document.documentElement.clientWidth ||window.innerWidth);
+    h = (vv&&vv.height) ? vv.height : (document.documentElement.clientHeight||window.innerHeight);
+  }
+  /* iOS standalone, black-translucent: the layout viewport comes up SHORT by
+     the status-bar inset while the page still paints from the physical top,
+     so the shortfall lands at the bottom of the display and nothing in the
+     DOM knows. Measured on an iPhone: box 812 + safe-top 62 = screen 874,
+     with every other source (inner, client, visualViewport) agreeing on 812.
+     Correct it only when those three numbers add up exactly, on a standalone
+     launch, in the orientation screen reports — a browser tab is short for a
+     different reason (chrome), and must not be stretched under it. */
+  vpBoost=0;
+  try{
+    const sat=parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sat'))||0;
+    const st=(navigator.standalone===true)||matchMedia('(display-mode: standalone)').matches;
+    if(st && sat>0 && screen && screen.height &&
+       Math.abs(w-screen.width)<2 && Math.abs(h+sat-screen.height)<2){
+      vpBoost=Math.round(screen.height-h); h=screen.height;
+    }
+  }catch(e){}
   return [Math.round(w),Math.round(h)];
 }
 function resize(){
@@ -131,7 +148,12 @@ function resize(){
     SAFE_T=parseFloat(cs.getPropertyValue('--sat'))||0;
     SAFE_B=parseFloat(cs.getPropertyValue('--sab'))||0;
   }catch(e){ SAFE_T=0; SAFE_B=0; }
-  cv.width = W*DPR; cv.height = H*DPR;   // backing store only — CSS owns the box
+  cv.width = W*DPR; cv.height = H*DPR;
+  // normally CSS owns the box and the element just stretches. When the
+  // viewport is short of the display, stretching can only ever reach 812 —
+  // the element has to be told to be taller than the viewport it sits in.
+  if(vpBoost){ cv.style.width=W+'px'; cv.style.height=H+'px'; }
+  else { cv.style.width=''; cv.style.height=''; }
   ctx.setTransform(DPR,0,0,DPR,0,0);
   CX = W/2; CY = H/2;
   SC = Math.min(W,H)/720;
@@ -3472,6 +3494,7 @@ function drawVP(){
     'safe        top '+sa('--sat')+'  bottom '+sa('--sab'),
     'standalone  '+(navigator.standalone===true)+'  dm '+(matchMedia('(display-mode: standalone)').matches),
     'W x H       '+W+' x '+H+'   SAFE '+SAFE_T+'/'+SAFE_B,
+    'boost       '+(vpBoost?('+'+vpBoost+'px — canvas forced past the viewport'):'none'),
   ];
   ctx.save();
   ctx.setTransform(DPR,0,0,DPR,0,0);
