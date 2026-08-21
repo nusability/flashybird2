@@ -94,7 +94,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.16.7 zones beta';
+const VERSION='Z0.16.8 zones beta';
 let cv = document.getElementById('c');
 let ctx = cv.getContext('2d');
 
@@ -105,7 +105,8 @@ let W=0,H=0,CX=0,CY=0,DPR=1,SC=1,Fp=560,SAFE_T=0,SAFE_B=0;
 // band even when the view runs edge-to-edge), while a fixed element's
 // laid-out box always spans the real screen. visualViewport is only the
 // fallback for the first frames before layout.
-let vpBoost=0;     // px the layout viewport is short of the real display
+let vpPin=0;       // when set, the height the canvas is driven to: the display
+let vpBoost=0;     // px the layout viewport is currently short of that
 function vpSize(){
   // #vp is the yardstick: a fixed inset:0 box, never restyled by us, so it
   // always reports the layout viewport itself
@@ -125,20 +126,31 @@ function vpSize(){
      Correct it only when those three numbers add up exactly, on a standalone
      launch, in the orientation screen reports — a browser tab is short for a
      different reason (chrome), and must not be stretched under it. */
-  let boost=0;
+  /* The test can't be "the viewport is exactly one status bar short", because
+     growing the document to the display height sometimes makes iOS report the
+     full height back — which un-picks the condition, which shrinks the
+     document, which makes it report short again: the flicker. So the decision
+     is on the DISPLAY, not on the shortfall. Once this is a standalone launch
+     with a real top inset, in the orientation screen reports, and the viewport
+     is no more than a status bar short of the display, the canvas is pinned to
+     the display height and stays there — bigger of the two, every time. The
+     shortfall is then only a number to report, free to fall to zero without
+     anything moving. */
+  let pin=0;
   try{
     const sat=parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sat'))||0;
     const st=(navigator.standalone===true)||matchMedia('(display-mode: standalone)').matches;
     if(st && sat>0 && screen && screen.height &&
-       Math.abs(w-screen.width)<2 && Math.abs(h+sat-screen.height)<2){
-      boost=Math.round(screen.height-h); h=screen.height;
+       Math.abs(w-screen.width)<2 && h<=screen.height+1 && h+sat>=screen.height-1){
+      pin=Math.round(screen.height);
     }
   }catch(e){}
-  // the boost is REPORTED, never assigned here: this runs from the watchdog
-  // too, and a global quietly changing under a check that then decides not to
-  // resize is exactly how the canvas ended up drawing 874 rows into an 812px
-  // box — every pixel squashed, and nothing able to notice
-  return [Math.round(w),Math.round(h),boost];
+  h=Math.round(h);
+  // reported, never assigned here: this runs from the watchdog too, and a
+  // global quietly changing under a check that then decides not to resize is
+  // exactly how the canvas ended up drawing 874 rows into an 812px box — every
+  // pixel squashed, and nothing able to notice
+  return [Math.round(w), pin? Math.max(pin,h) : h, pin, pin? Math.max(0,pin-h) : 0];
 }
 /* Pointer events arrive in layout-viewport coordinates, but with the boost on
    the canvas lives in the DOCUMENT rather than pinned to that viewport — and a
@@ -183,7 +195,7 @@ function resize(){
   // strokes stay crisp; cap at 3 to bound fill cost on zoomed desktops
   DPR = Math.min(window.devicePixelRatio||1, 3);
   const vs=vpSize();
-  W=vs[0]; H=vs[1]; vpBoost=vs[2];
+  W=vs[0]; H=vs[1]; vpPin=vs[2]; vpBoost=vs[3];
   // black-translucent standalone runs edge-to-edge under the status bar and
   // home indicator; UI anchored to the top/bottom edges ducks the insets
   try{
@@ -201,9 +213,11 @@ function resize(){
   /* A FIXED element is clipped to the layout viewport, so simply making the
      canvas taller painted nothing into the strip and pushed the UI into the
      clipped part — cut off. Content in the DOCUMENT is not clipped that way,
-     so when the boost is on the canvas goes absolute and the document is
-     grown to match, which is the only route to pixels down there. */
-  if(vpBoost){
+     so while pinned the canvas goes absolute and the document is grown to
+     match, which is the only route to pixels down there. Keyed on the pin
+     rather than on the shortfall, so a viewport that catches up to the display
+     doesn't drop the layout and start the flicker over. */
+  if(vpPin){
     cv.style.position='absolute'; cv.style.top='0'; cv.style.left='0';
     cv.style.width=W+'px'; cv.style.height=H+'px';
     document.documentElement.style.height=H+'px';
@@ -229,7 +243,7 @@ window.addEventListener('resize', resize); resize();
 function resMatch(){
   const dpr=Math.min(window.devicePixelRatio||1,3), s=vpSize();
   if(Math.abs(cv.width-s[0]*dpr)>=2 || Math.abs(cv.height-s[1]*dpr)>=2) return false;
-  if(s[2]!==vpBoost) return false;          // the boost decision itself changed
+  if(s[2]!==vpPin) return false;            // the pin decision itself changed
   // and the element has to actually BE that size: a backing store that matches
   // while the box does not is the squash, and it is invisible to a store-only
   // check because rebuilding the store repairs nothing
@@ -3575,7 +3589,7 @@ function drawVP(){
     'safe        top '+sa('--sat')+'  bottom '+sa('--sab'),
     'standalone  '+(navigator.standalone===true)+'  dm '+(matchMedia('(display-mode: standalone)').matches),
     'W x H       '+W+' x '+H+'   SAFE '+SAFE_T+'/'+SAFE_B,
-    'boost       '+(vpBoost?('+'+vpBoost+'px — canvas forced past the viewport'):'none'),
+    'pinned      '+(vpPin? (vpPin+'px display, viewport short by '+vpBoost) : 'no — canvas is the viewport'),
     'scroll      '+Math.round(window.scrollX)+' , '+Math.round(window.scrollY)
                  +'   ptr off '+Math.round(ptrOX)+' , '+Math.round(ptrOY),
     'last tap    '+(lastTapRaw? ('raw '+lastTapRaw.map(Math.round).join(',')
