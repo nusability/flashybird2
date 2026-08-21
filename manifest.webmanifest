@@ -1,7 +1,7 @@
 {
   "name": "Flashy Bird Zones",
   "short_name": "Flashy Zones",
-  "start_url": "zones.html",
+  "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
