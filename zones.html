@@ -94,7 +94,7 @@ const G={
    Flappy-bird-from-behind through a hypnotic space
    tunnel. One button: tap / click / space to flap.
    ================================================ */
-const VERSION='Z0.16.5 zones beta';
+const VERSION='Z0.16.6 zones beta';
 let cv = document.getElementById('c');
 let ctx = cv.getContext('2d');
 
@@ -136,6 +136,44 @@ function vpSize(){
   }catch(e){}
   return [Math.round(w),Math.round(h)];
 }
+/* Pointer events arrive in layout-viewport coordinates, but with the boost on
+   the canvas lives in the DOCUMENT rather than pinned to that viewport — and a
+   document taller than the viewport can end up parked a few dozen px down (iOS
+   does exactly that when you come back from another app), at which point every
+   tap reads that much too high on the canvas. Measuring the canvas box turns
+   whatever iOS did — scroll, visual-viewport offset, a stray rubber-band — back
+   into canvas coordinates, so hit tests can go on being written in plain W/H. */
+let ptrOX=0, ptrOY=0, ptrSX=1, ptrSY=1;
+function syncPtr(){
+  try{
+    const r=cv.getBoundingClientRect();
+    if(r.width>10 && r.height>10){
+      ptrOX=r.left; ptrOY=r.top; ptrSX=W/r.width; ptrSY=H/r.height;
+    }
+  }catch(e){}
+}
+// and belt-and-braces: park the page back at the top whenever it drifts
+function unscroll(){
+  if(window.scrollX||window.scrollY){ window.scrollTo(0,0); syncPtr(); }
+}
+// every handler below reads .clientX/.clientY, so the correction rides in on a
+// stand-in event rather than being repeated at two dozen call sites
+const ptrEv=e=>({
+  clientX:(e.clientX-ptrOX)*ptrSX, clientY:(e.clientY-ptrOY)*ptrSY,
+  pointerId:e.pointerId, preventDefault:()=>e.preventDefault(),
+});
+// order matters on a fresh press: measure the drift FIRST and fold it into the
+// coordinates, then park the page back at the top — undoing the scroll first
+// would move the canvas out from under the finger mid-event
+let lastTapRaw=null, lastTapFix=null;   // for the viewport debug crosshair
+const onPtr=(fn,fresh)=>e=>{
+  if(fresh){
+    syncPtr(); const v=ptrEv(e); unscroll();
+    lastTapRaw=[e.clientX,e.clientY]; lastTapFix=[v.clientX,v.clientY];
+    fn(v);
+  }
+  else fn(ptrEv(e));
+};
 function resize(){
   // render at native density (3x on modern phones) so text and thin
   // strokes stay crisp; cap at 3 to bound fill cost on zoomed desktops
@@ -173,6 +211,7 @@ function resize(){
   CX = W/2; CY = H/2;
   SC = Math.min(W,H)/720;
   Fp = 560*SC;
+  syncPtr();
 }
 window.addEventListener('resize', resize); resize();
 // iOS resolution watchdog: on reload (especially standalone/home-screen)
@@ -209,13 +248,23 @@ function rebuildCanvas(){
   resize();
   vpKick();
 }
-window.addEventListener('pageshow',()=>rebuildCanvas());
-window.addEventListener('focus',ensureRes);
-document.addEventListener('visibilitychange',()=>{ if(!document.hidden) rebuildCanvas(); });
+window.addEventListener('pageshow',()=>{ unscroll(); rebuildCanvas(); resBurst(120); });
+window.addEventListener('focus',()=>{ unscroll(); ensureRes(); syncPtr(); resBurst(120); });
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden){ unscroll(); rebuildCanvas(); resBurst(120); } });
+window.addEventListener('scroll',unscroll,{passive:true});
 window.addEventListener('orientationchange',()=>setTimeout(ensureRes,80));
 if(window.visualViewport) window.visualViewport.addEventListener('resize',ensureRes);
 let resGuardN=24;
 (function resGuard(){ ensureRes(); if(resGuardN-->0) setTimeout(resGuard,250); })();
+/* iOS hands out the geometry late — the safe-area env() vars read 0 and the
+   window metrics are stale until layout settles a frame or three in — and a
+   250ms watchdog only catches up after the game has already painted a few
+   hundred ms at the wrong size, which is the snap you could see on launch.
+   So the frame loop re-checks before every paint for a burst of frames, at
+   launch and again after every resume, and the correction lands ahead of the
+   pixels rather than after them. */
+let bootRes=240;
+const resBurst=n=>{ bootRes=Math.max(bootRes,n); };
 // launch kicks after iOS has had time to settle the window geometry
 setTimeout(rebuildCanvas,600);
 setTimeout(rebuildCanvas,1800);
@@ -2211,7 +2260,7 @@ function fireBtn(act){
   else if(act==='gift') claimGift();
   else if(act==='chal') claimChal();
 }
-window.addEventListener('pointerdown',e=>{
+window.addEventListener('pointerdown',onPtr(e=>{
   pressX=e.clientX; pressY=e.clientY; pressDown=true;
   pendBtn=null;
   if(replaying){
@@ -2264,8 +2313,8 @@ window.addEventListener('pointerdown',e=>{
   // remember where the press started so a quick drag down can become a dive
   if(state==='play'){ swipePid=e.pointerId; swipeY0=e.clientY; swipeT0=performance.now(); }
   press();
-},{passive:false});
-window.addEventListener('pointermove',e=>{
+},true),{passive:false});
+window.addEventListener('pointermove',onPtr(e=>{
   if(pressDown){ pressX=e.clientX; pressY=e.clientY; }
   if(state==='map'){ mpMove(e); return; }
   if(state==='play' && swipePid===e.pointerId){
@@ -2277,8 +2326,8 @@ window.addEventListener('pointermove',e=>{
     if(Math.abs(dy)>8) shopMoved=true;
     shopScroll=clamp(shopS0-dy,0,shopMaxScroll);
   }
-},{passive:false});
-window.addEventListener('pointerup',e=>{
+}),{passive:false});
+window.addEventListener('pointerup',onPtr(e=>{
   pressDown=false;
   if(state==='map'){ mpUp(e); return; }
   if(pendBtn){
@@ -2292,14 +2341,14 @@ window.addEventListener('pointerup',e=>{
     if(!shopMoved) shopTap(e.clientX,e.clientY);
     shopPid=null;
   }
-});
-window.addEventListener('pointercancel',e=>{
+}));
+window.addEventListener('pointercancel',onPtr(e=>{
   pressDown=false; pendBtn=null;
   if(state==='map'){ mpCancel(); }
   if(e.pointerId===pedalPid){ pedalOn=false; pedalPid=null; }
   if(swipePid===e.pointerId) swipePid=null;
   if(shopPid===e.pointerId) shopPid=null;
-});
+}));
 window.addEventListener('wheel',e=>{
   if(state==='map'){ mpWheel(e); return; }
   if(state==='shop'){ e.preventDefault(); shopScroll=clamp(shopScroll+e.deltaY,0,shopMaxScroll); }
@@ -3510,6 +3559,10 @@ function drawVP(){
     'standalone  '+(navigator.standalone===true)+'  dm '+(matchMedia('(display-mode: standalone)').matches),
     'W x H       '+W+' x '+H+'   SAFE '+SAFE_T+'/'+SAFE_B,
     'boost       '+(vpBoost?('+'+vpBoost+'px — canvas forced past the viewport'):'none'),
+    'scroll      '+Math.round(window.scrollX)+' , '+Math.round(window.scrollY)
+                 +'   ptr off '+Math.round(ptrOX)+' , '+Math.round(ptrOY),
+    'last tap    '+(lastTapRaw? ('raw '+lastTapRaw.map(Math.round).join(',')
+                 +'  ->  '+lastTapFix.map(Math.round).join(',')) : '-'),
   ];
   ctx.save();
   ctx.setTransform(DPR,0,0,DPR,0,0);
@@ -3524,6 +3577,20 @@ function drawVP(){
   ctx.strokeRect(1,1,W-2,H-2);
   // and the boosted strip in a colour nothing else uses: if this band is on
   // screen the strip paints, if it is not the viewport really does end early
+  // where the last press actually landed: put a finger on a button and the
+  // ring should sit under it — if it sits above, the coordinates are still off
+  if(lastTapFix){
+    ctx.strokeStyle='#ffd400'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.arc(lastTapFix[0],lastTapFix[1],16,0,Math.PI*2); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(lastTapFix[0]-24,lastTapFix[1]); ctx.lineTo(lastTapFix[0]+24,lastTapFix[1]);
+    ctx.moveTo(lastTapFix[0],lastTapFix[1]-24); ctx.lineTo(lastTapFix[0],lastTapFix[1]+24);
+    ctx.stroke();
+    if(lastTapRaw && Math.abs(lastTapRaw[1]-lastTapFix[1])>1){
+      ctx.strokeStyle='rgba(255,45,122,0.8)';
+      ctx.beginPath(); ctx.arc(lastTapRaw[0],lastTapRaw[1],10,0,Math.PI*2); ctx.stroke();
+    }
+  }
   if(vpBoost){
     ctx.fillStyle='#00ff9c';
     ctx.fillRect(0,H-vpBoost,W,vpBoost);
@@ -4708,6 +4775,7 @@ let last=0, acc=0;
 const STEP=1/120;
 function loop(ms){
   requestAnimationFrame(loop);
+  if(bootRes>0){ bootRes--; ensureRes(); unscroll(); }
   const now=ms/1000;
   let dt=now-last; last=now;
   if(dt<=0) return;
