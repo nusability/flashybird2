@@ -1,9 +1,11 @@
 /* Flashy Bird Zones — offline service worker.
    Network-first: online always serves the freshest deploy, offline falls
-   back to the last cached copy. Registered by zones.html only. */
-const CACHE='flashybird-zones-v2';
+   back to the last cached copy. */
+const CACHE='flashybird-zones-v3';
 const CORE=[
-  './','index.html','zones.html','theme-lab.html',
+  // zones.html is the stub older home-screen installs still launch at, and
+  // classic.html is the pre-zones game kept at a live URL
+  './','index.html','zones.html','classic.html','theme-lab.html',
   'themes/sky.js','themes/jungle.js','themes/candy-glacier.js',
   'themes/clockwork-aviary.js','themes/space-koi.js','themes/volcano-hatchery.js',
   'themes/mushroom-metropolis.js','themes/disco-hive.js','themes/origami-canyon.js',
